@@ -92,7 +92,7 @@ CLIENT_SIDE_REPORTS = [
 ]
 
 
-if mimetypes.types_map.get(".js") == "application/javascript":
+if mimetypes.types_map.get(".js") != "application/javascript":
     # This is sometimes broken on windows, see
     # https://github.com/beancount/fava/issues/1446
     logging.error("Invalid mimetype set for '.js', overriding")
@@ -177,7 +177,12 @@ def _setup_template_config(fava_app: Flask) -> None:
         return {"ledger": g.ledger, "chart_api": ChartApi}
 
 
-def _setup_filters(fava_app: Flask, read_only: bool, incognito: bool) -> None:
+def _setup_filters(
+    fava_app: Flask,
+    *,
+    read_only: bool,
+    incognito: bool,
+) -> None:
     """Setup request handlers/filters."""
     fava_app.url_defaults(_inject_filters)
 
@@ -436,6 +441,7 @@ def _setup_babel(fava_app: Flask) -> None:
 
 def create_app(
     files: Iterable[Path | str],
+    *,
     load: bool = False,
     incognito: bool = False,
     read_only: bool = False,
