@@ -4,6 +4,7 @@ import { _ } from "../../i18n";
 import { getURLFilters } from "../../stores/filters";
 import { Route } from "../route";
 import BalanceSheet from "./BalanceSheet.svelte";
+import CashFlow from "./CashFlow.svelte";
 import IncomeStatement from "./IncomeStatement.svelte";
 import TrialBalance from "./TrialBalance.svelte";
 
@@ -25,6 +26,13 @@ export const balance_sheet = new Route(
   BalanceSheet,
   async (url) => get("balance_sheet", getURLFilters(url)),
   () => _("Balance Sheet"),
+);
+
+export const cash_flow = new Route(
+  "cash_flow",
+  CashFlow,
+  async (url) => get("cash_flow", getURLFilters(url)),
+  () => _("Cash Flow"),
 );
 
 export const trial_balance = new Route(

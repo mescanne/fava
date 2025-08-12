@@ -929,6 +929,7 @@
     "locale": null,
     "show_accounts_with_zero_balance": false,
     "show_accounts_with_zero_transactions": true,
+    "show_cash_flow": false,
     "show_closed_accounts": false,
     "sidebar_show_queries": 5,
     "unrealized": "Unrealized",

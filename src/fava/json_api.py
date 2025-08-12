@@ -659,6 +659,27 @@ def get_balance_sheet() -> TreeReport:
 
 
 @api_endpoint
+def get_cash_flow() -> TreeReport:
+    """Get the data for the cash flow statement."""
+    g.ledger.changed()
+    options = g.ledger.options
+    root_tree = g.filtered.root_tree
+    charts = [
+        ChartApi.hierarchy(options["name_assets"]),
+        ChartApi.hierarchy(options["name_liabilities"]),
+    ]
+    trees = [
+        root_tree.get(options["name_assets"]),
+        root_tree.get(options["name_liabilities"]),
+    ]
+    return TreeReport(
+        g.filtered.date_range,
+        charts,
+        trees=[tree.serialise_with_context() for tree in trees],
+    )
+
+
+@api_endpoint
 def get_trial_balance() -> TreeReport:
     """Get the data for the trial balance."""
     g.ledger.changed()

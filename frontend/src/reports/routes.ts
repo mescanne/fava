@@ -9,7 +9,14 @@ import { import_report } from "./import";
 import { options } from "./options";
 import { query } from "./query";
 import type { FrontendRoute } from "./route";
-import { balance_sheet, income_statement, trial_balance } from "./tree_reports";
+import {
+  balance_sheet,
+  cash_flow,
+  income_statement,
+  trial_balance,
+} from "./tree_reports";
+import { show_cash_flow } from "../stores/fava_options";
+import { get } from "svelte/store";
 
 /**
  * This is a list of routes to render in the frontend. For those that we render
@@ -34,3 +41,7 @@ export const frontend_routes: FrontendRoute[] = [
   query,
   trial_balance,
 ];
+
+if (get(show_cash_flow)) {
+  frontend_routes.push(cash_flow);
+}
