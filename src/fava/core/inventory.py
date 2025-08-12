@@ -3,32 +3,47 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Callable
-from typing import Dict
-from typing import Optional
-from typing import Tuple
+from typing import NamedTuple
 from typing import TYPE_CHECKING
 
-from fava.beans import create
-from fava.beans.abc import Cost
+from fava.beans.protocols import Cost
+from fava.beans.str import cost_to_string
 
 if TYPE_CHECKING:  # pragma: no cover
+    import datetime
+    from collections.abc import Callable
+    from collections.abc import Iterator
     from typing import Concatenate
-    from typing import Iterable
-    from typing import Iterator
     from typing import ParamSpec
 
-    from fava.beans.abc import Amount
-    from fava.beans.abc import Position
+    from fava.beans.protocols import Amount
+    from fava.beans.protocols import Position
 
     P = ParamSpec("P")
 
 
 ZERO = Decimal()
-InventoryKey = Tuple[str, Optional[Cost]]
+InventoryKey = tuple[str, Cost | None]
 
 
-class SimpleCounterInventory(Dict[str, Decimal]):
+class _Amount(NamedTuple):
+    number: Decimal
+    currency: str
+
+
+class _Cost(NamedTuple):
+    number: Decimal
+    currency: str
+    date: datetime.date
+    label: str | None
+
+
+class _Position(NamedTuple):
+    units: Amount
+    cost: Cost | None
+
+
+class SimpleCounterInventory(dict[str, Decimal]):
     """A simple inventory mapping just strings to numbers."""
 
     def is_empty(self) -> bool:
@@ -49,8 +64,22 @@ class SimpleCounterInventory(Dict[str, Decimal]):
     def __neg__(self) -> SimpleCounterInventory:
         return SimpleCounterInventory({key: -num for key, num in self.items()})
 
+    def reduce(
+        self,
+        reducer: Callable[Concatenate[Position, P], Amount],
+        *args: P.args,
+        **_kwargs: P.kwargs,
+    ) -> SimpleCounterInventory:
+        """Reduce inventory."""
+        counter = SimpleCounterInventory()
+        for currency, number in self.items():
+            pos = _Position(_Amount(number, currency), None)
+            amount = reducer(pos, *args)  # type: ignore[call-arg]
+            counter.add(amount.currency, amount.number)
+        return counter
 
-class CounterInventory(Dict[InventoryKey, Decimal]):
+
+class CounterInventory(dict[InventoryKey, Decimal]):
     """A lightweight inventory.
 
     This is intended as a faster alternative to Beancount's Inventory class.
@@ -72,12 +101,19 @@ class CounterInventory(Dict[InventoryKey, Decimal]):
         else:
             self[key] = new_num
 
-    @staticmethod
-    def from_positions(positions: Iterable[Position]) -> CounterInventory:
-        inv = CounterInventory()
-        for position in positions:
-            inv.add_position(position)
-        return inv
+    def __iter__(self) -> Iterator[InventoryKey]:
+        raise NotImplementedError
+
+    def to_strings(self) -> list[str]:
+        """Print as a list of strings (e.g. for snapshot tests)."""
+        strings = []
+        for (currency, cost), number in self.items():
+            if cost is None:
+                strings.append(f"{number} {currency}")
+            else:
+                cost_str = cost_to_string(cost)
+                strings.append(f"{number} {currency} {{{cost_str}}}")
+        return strings
 
     def reduce(
         self,
@@ -92,8 +128,8 @@ class CounterInventory(Dict[InventoryKey, Decimal]):
         """
         counter = SimpleCounterInventory()
         for (currency, cost), number in self.items():
-            pos = create.position(create.amount((number, currency)), cost)
-            amount = reducer(pos, *args)
+            pos = _Position(_Amount(number, currency), cost)
+            amount = reducer(pos, *args)  # type: ignore[call-arg]
             counter.add(amount.currency, amount.number)
         return counter
 

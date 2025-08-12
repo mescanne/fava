@@ -4,43 +4,58 @@ from __future__ import annotations
 
 from decimal import Decimal
 from functools import singledispatch
+from typing import TYPE_CHECKING
 
+from beancount.core import amount
+from beancount.core import data
+from beancount.core import position
 from beancount.core.position import CostSpec
-from beancount.parser.printer import (  # type: ignore[import-untyped]
-    format_entry,
-)
+from beancount.parser.printer import format_entry
 
-from fava.beans.abc import Amount
-from fava.beans.abc import Cost
 from fava.beans.abc import Directive
 from fava.beans.abc import Position
 from fava.beans.helpers import replace
 from fava.core.misc import align
 
+if TYPE_CHECKING:  # pragma: no cover
+    from fava.beans import protocols
+
 
 @singledispatch
 def to_string(
-    obj: Amount | Cost | CostSpec | Directive | Position,
+    obj: amount.Amount
+    | protocols.Amount
+    | protocols.Cost
+    | CostSpec
+    | Directive
+    | Position,
     _currency_column: int | None = None,
     _indent: int | None = None,
 ) -> str:
     """Convert to a string."""
-    raise TypeError(f"Unsupported object of type {type(obj)}")
+    number = getattr(obj, "number", None)
+    currency = getattr(obj, "currency", None)
+    if isinstance(number, Decimal) and isinstance(currency, str):
+        # The Amount and Cost protocols are ambigous, so handle this here
+        # instead of having this be dispatched - relevant for older Pythons
+        if hasattr(obj, "date"):  # pragma: no cover
+            cost_to_string(obj)  # type: ignore[arg-type]
+        return f"{number} {currency}"  # pragma: no cover
+    msg = f"Unsupported object of type {type(obj)}"
+    raise TypeError(msg)
 
 
-@to_string.register(Amount)
-def _(obj: Amount) -> str:
+@to_string.register(amount.Amount)
+def amount_to_string(obj: amount.Amount | protocols.Amount) -> str:
+    """Convert an amount to a string."""
     return f"{obj.number} {obj.currency}"
 
 
-@to_string.register(Cost)
-def _(cost: Cost) -> str:
-    strs = [f"{cost.number} {cost.currency}"]
-    if cost.date:
-        strs.append(cost.date.isoformat())
-    if cost.label:
-        strs.append(f'"{cost.label}"')
-    return ", ".join(strs)
+@to_string.register(position.Cost)
+def cost_to_string(cost: protocols.Cost | position.Cost) -> str:
+    """Convert a cost to a string."""
+    res = f"{cost.number} {cost.currency}, {cost.date.isoformat()}"
+    return f'{res}, "{cost.label}"' if cost.label else res
 
 
 @to_string.register(CostSpec)
@@ -69,7 +84,7 @@ def _(cost: CostSpec) -> str:
 
 @to_string.register(Position)
 def _(obj: Position) -> str:
-    units_str = to_string(obj.units)
+    units_str = amount_to_string(obj.units)
     if obj.cost is None:
         return units_str
     cost_str = to_string(obj.cost)
@@ -86,6 +101,8 @@ def _format_entry(
         key: entry.meta[key] for key in entry.meta if not key.startswith("_")
     }
     entry = replace(entry, meta=meta)
-    string = align(format_entry(entry, prefix=" " * indent), currency_column)
+    assert isinstance(entry, data.ALL_DIRECTIVES)  # noqa: S101
+    printed_entry = format_entry(entry, prefix=" " * indent)
+    string = align(printed_entry, currency_column)
     string = string.replace("<class 'beancount.core.number.MISSING'>", "")
     return "\n".join(line.rstrip() for line in string.split("\n"))

@@ -1,10 +1,8 @@
 <script lang="ts">
-  import type { LanguageSupport } from "@codemirror/language";
   import type { EditorView } from "@codemirror/view";
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
 
   import { get, put } from "../../api";
-  import type { SourceFile } from "../../api/validators";
   import {
     replaceContents,
     scrollToLine,
@@ -15,26 +13,29 @@
   import { log_error } from "../../log";
   import { notify_err } from "../../notifications";
   import router from "../../router";
-  import { errors, fava_options } from "../../stores";
-  import { searchParams } from "../../stores/url";
-
+  import { errors } from "../../stores";
+  import { insert_entry } from "../../stores/fava_options";
+  import type { EditorReportProps } from ".";
   import EditorMenu from "./EditorMenu.svelte";
 
-  export let source: SourceFile;
-  export let beancount_language_support: LanguageSupport;
+  let {
+    source,
+    beancount_language_support,
+    line_search_param,
+  }: EditorReportProps = $props();
 
-  $: file_path = source.file_path;
+  let file_path = $derived(source.file_path);
 
-  let changed = false;
+  let changed = $state(false);
   const onDocChanges = () => {
     changed = true;
   };
 
-  let sha256sum = "";
-  let saving = false;
+  let sha256sum = $state("");
+  let saving = $state(false);
 
   /**
-   * Save the contents of the ediftor.
+   * Save the contents of the editor.
    */
   async function save(cm: EditorView) {
     saving = true;
@@ -71,44 +72,44 @@
         },
       },
     ],
-    beancount_language_support
+    beancount_language_support,
   );
 
-  // update editor contents
-  $: if (source) {
-    editor.dispatch(replaceContents(editor.state, source.source));
-    sha256sum = source.sha256sum;
-    editor.focus();
-    changed = false;
-  }
+  $effect(() => {
+    // update editor contents if source changes
+    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+    source;
+    untrack(() => {
+      editor.dispatch(replaceContents(editor.state, source.source));
+      sha256sum = source.sha256sum;
+      editor.focus();
+      changed = false;
+    });
+  });
 
-  // go to line on file changes
-  $: if (file_path) {
-    const opts = $fava_options.insert_entry.filter(
-      (f) => f.filename === file_path
+  $effect(() => {
+    // Go to line if the edited file changes. The line number is obtained from the
+    // URL, last file insert option, or last file line (in that order).
+    const last_insert_opt = untrack(() =>
+      $insert_entry.filter((f) => f.filename === file_path).at(-1),
     );
-    const line = parseInt($searchParams.get("line") ?? "0", 10);
-    const last_insert_opt = opts[opts.length - 1];
-    const lineToScrollTo = (() => {
-      if (line > 0) {
-        return line;
-      }
-      if (last_insert_opt) {
-        return last_insert_opt.lineno - 1;
-      }
-      return editor.state.doc.lines;
-    })();
-    editor.dispatch(scrollToLine(editor.state, lineToScrollTo));
-  }
+    let line = editor.state.doc.lines;
+    if (line_search_param != null) {
+      line = line_search_param;
+    } else if (last_insert_opt) {
+      line = last_insert_opt.lineno - 1;
+    }
+    editor.dispatch(scrollToLine(editor.state, line));
+  });
 
-  // Update diagnostics, showing errors in the editor
-  $: {
+  $effect(() => {
+    // Update diagnostics, showing errors in the editor
     // Only show errors for this file, or general errors (AKA no source)
     const errorsForFile = $errors.filter(
-      (err) => err.source === null || err.source.filename === file_path
+      (err) => err.source == null || err.source.filename === file_path,
     );
     editor.dispatch(setErrors(editor.state, errorsForFile));
-  }
+  });
 
   const checkEditorChanges = () =>
     changed
@@ -120,12 +121,15 @@
 
 <form
   class="fixed-fullsize-container"
-  on:submit|preventDefault={() => save(editor)}
+  onsubmit={async (event) => {
+    event.preventDefault();
+    return save(editor);
+  }}
 >
   <EditorMenu {file_path} {editor}>
     <SaveButton {changed} {saving} />
   </EditorMenu>
-  <div use:renderEditor />
+  <div use:renderEditor></div>
 </form>
 
 <style>
@@ -143,5 +147,6 @@
   form :global(.cm-editor) {
     width: 100%;
     height: 100%;
+    overflow: hidden;
   }
 </style>

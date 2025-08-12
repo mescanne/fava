@@ -17,7 +17,8 @@ from flask import current_app
 from fava.helpers import BeancountError
 
 if TYPE_CHECKING:  # pragma: no cover
-    from typing import Callable
+    from collections.abc import Callable
+    from typing import TypeVar
 
     from flask.wrappers import Response
 
@@ -27,6 +28,18 @@ if TYPE_CHECKING:  # pragma: no cover
 
 class FavaExtensionError(BeancountError):
     """Error in one of Fava's extensions."""
+
+
+class JinjaLoaderMissingError(ValueError):  # noqa: D101
+    def __init__(self) -> None:  # pragma: no cover
+        super().__init__("Expected Flask app to have jinja_loader.")
+
+
+class ExtensionConfigError(ValueError):  # noqa: D101
+    def __init__(self, error: SyntaxError, config: str) -> None:
+        super().__init__(
+            f"Could not load extension config: {error} in '{config}'."
+        )
 
 
 class FavaExtensionBase:
@@ -53,8 +66,12 @@ class FavaExtensionBase:
             ledger: Input ledger file.
             config: Configuration options string passed from the
                     beancount file's 'fava-extension' line.
+
+        Raises:
+            ExtensionConfigError: If the config cannot be parsed.
         """
         self.endpoints = {}
+        self.config = None
 
         # Go through each of the subclass's functions to find the ones
         # marked as endpoints by @extension_endpoint
@@ -62,13 +79,14 @@ class FavaExtensionBase:
             if hasattr(func, "endpoint_key"):
                 name, methods = func.endpoint_key
                 for method in methods:
-                    self.endpoints[(name, method)] = func
+                    self.endpoints[name, method] = func
 
         self.ledger = ledger
-        try:
-            self.config = ast.literal_eval(config) if config else None
-        except ValueError:
-            self.config = None
+        if config:
+            try:
+                self.config = ast.literal_eval(config)
+            except SyntaxError as error:
+                raise ExtensionConfigError(error, config) from error
 
     @property
     def name(self) -> str:
@@ -83,11 +101,17 @@ class FavaExtensionBase:
     @cached_property
     def jinja_env(self) -> jinja2.Environment:
         """Jinja env for this extension."""
-        if not current_app.jinja_loader:
-            raise ValueError("Expected Flask app to have jinja_loader.")
+        if not current_app.jinja_loader:  # pragma: no cover
+            raise JinjaLoaderMissingError
         ext_loader = jinja2.FileSystemLoader(self.extension_dir / "templates")
         loader = jinja2.ChoiceLoader([ext_loader, current_app.jinja_loader])
         return current_app.jinja_env.overlay(loader=loader)
+
+    def after_load_file(self) -> None:
+        """Run after a ledger file has been loaded."""
+
+    def before_request(self) -> None:
+        """Run before each client request."""
 
     def after_entry_modified(self, entry: Directive, new_lines: str) -> None:
         """Run after an `entry` has been modified."""
@@ -158,16 +182,18 @@ def find_extensions(
     return classes, []
 
 
+if TYPE_CHECKING:  # pragma: no cover
+    T = TypeVar("T", bound=FavaExtensionBase)
+
+
 def extension_endpoint(
-    func_or_endpoint_name: (
-        Callable[[FavaExtensionBase], Any] | str | None
-    ) = None,
+    func_or_endpoint_name: (Callable[[T], Any] | str | None) = None,
     methods: list[str] | None = None,
 ) -> (
-    Callable[[FavaExtensionBase], Response]
+    Callable[[T], Response]
     | Callable[
-        [Callable[[FavaExtensionBase], Response]],
-        Callable[[FavaExtensionBase], Response],
+        [Callable[[T], Response]],
+        Callable[[T], Response],
     ]
 ):
     """Decorator to mark a function as an endpoint.
@@ -190,11 +216,11 @@ def extension_endpoint(
     )
 
     def decorator(
-        func: Callable[[FavaExtensionBase], Response],
-    ) -> Callable[[FavaExtensionBase], Response]:
+        func: Callable[[T], Response],
+    ) -> Callable[[T], Response]:
         f: Any = func
         f.endpoint_key = (
-            endpoint_name if endpoint_name else func.__name__,
+            endpoint_name or func.__name__,
             methods or ["GET"],
         )
         return func

@@ -20,11 +20,12 @@ def test_budgets(load_doc_custom_entries: list[Custom]) -> None:
     2016-01-01 custom "budget" Expenses:Groceries "weekly" 100.00 CNY
     2016-06-01 custom "budget" Expenses:Groceries "weekly"  10.00 EUR
     2016-06-01 custom "budget" Expenses:Groceries "asdfasdf"  10.00 EUR
+    2016-01-01 custom "budget" Expenses:Groceries "weekly"
     2016-06-01 custom "budget" Expenses:Groceries 10.00 EUR
     """
     budgets, errors = parse_budgets(load_doc_custom_entries)
 
-    assert len(errors) == 2
+    assert len(errors) == 3
 
     empty = calculate_budget(
         budgets,
@@ -41,8 +42,8 @@ def test_budgets(load_doc_custom_entries: list[Custom]) -> None:
         date(2016, 6, 8),
     )
 
-    assert budgets_["CNY"] == Decimal("100")
-    assert budgets_["EUR"] == Decimal("10")
+    assert budgets_["CNY"] == Decimal(100)
+    assert budgets_["EUR"] == Decimal(10)
 
 
 def test_budgets_daily(budgets_doc: BudgetDict) -> None:
@@ -71,8 +72,8 @@ def test_budgets_weekly(budgets_doc: BudgetDict) -> None:
     2016-05-01 custom "budget" Expenses:Books "weekly" 21 EUR"""
 
     for start, end, num in [
-        (date(2016, 5, 1), date(2016, 5, 2), Decimal("21") / 7),
-        (date(2016, 9, 1), date(2016, 9, 2), Decimal("21") / 7),
+        (date(2016, 5, 1), date(2016, 5, 2), Decimal(21) / 7),
+        (date(2016, 9, 1), date(2016, 9, 2), Decimal(21) / 7),
     ]:
         budget = calculate_budget(budgets_doc, "Expenses:Books", start, end)
         assert budget["EUR"] == num
@@ -83,9 +84,9 @@ def test_budgets_monthly(budgets_doc: BudgetDict) -> None:
     2014-05-01 custom "budget" Expenses:Books "monthly" 100 EUR"""
 
     for start, end, num in [
-        (date(2016, 5, 1), date(2016, 5, 2), Decimal("100") / 31),
-        (date(2016, 2, 1), date(2016, 2, 2), Decimal("100") / 29),
-        (date(2018, 3, 31), date(2018, 4, 1), Decimal("100") / 31),
+        (date(2016, 5, 1), date(2016, 5, 2), Decimal(100) / 31),
+        (date(2016, 2, 1), date(2016, 2, 2), Decimal(100) / 29),
+        (date(2018, 3, 31), date(2018, 4, 1), Decimal(100) / 31),
     ]:
         budget = calculate_budget(budgets_doc, "Expenses:Books", start, end)
         assert budget["EUR"] == num

@@ -17,13 +17,11 @@ import "../css/grid.css";
 import "../css/fonts.css";
 import "../css/help.css";
 import "../css/journal-table.css";
-import "../css/media-mobile.css";
-import "../css/media-print.css";
 import "../css/notifications.css";
 import "../css/tree-table.css";
-
 // Polyfill for customised builtin elements in Webkit
 import "@ungap/custom-elements";
+
 import { get as store_get } from "svelte/store";
 
 import { get } from "./api";
@@ -41,10 +39,13 @@ import { frontend_routes } from "./reports/routes";
 import router, { setStoreValuesFromURL, syncStoreValuesToURL } from "./router";
 import { initSidebar } from "./sidebar";
 import { has_changes, updatePageTitle } from "./sidebar/page-title";
-import { SortableTable } from "./sort";
-import { errors, fava_options, ledgerData } from "./stores";
+import { SortableTable } from "./sort/sortable-table";
+import { errors, ledgerData } from "./stores";
+import { init_color_scheme } from "./stores/color_scheme";
+import { auto_reload } from "./stores/fava_options";
 import { ledger_mtime, read_mtime } from "./stores/mtime";
 import { SvelteCustomElement } from "./svelte-custom-elements";
+import { TreeTableCustomElement } from "./tree-table/tree-table-custom-element";
 
 /**
  * Define the custom elements that Fava uses.
@@ -57,6 +58,9 @@ function defineCustomElements() {
   customElements.define("fava-journal", FavaJournal);
   customElements.define("sortable-table", SortableTable, { extends: "table" });
   customElements.define("svelte-component", SvelteCustomElement);
+
+  // for extension compatibility
+  customElements.define("tree-table", TreeTableCustomElement);
 }
 
 router.on("page-loaded", () => {
@@ -67,27 +71,38 @@ router.on("page-loaded", () => {
 });
 
 /**
- * Check the `changed` API endpoint and fire the appropriate events if some
+ * Update the ledger data and errors; Reload if automatic reloading is configured.
+ */
+function onChanges() {
+  get("ledger_data")
+    .then((v) => {
+      ledgerData.set(v);
+    })
+    .catch((e: unknown) => {
+      notify_err(e, (err) => `Error fetching ledger data: ${err.message}`);
+    });
+  if (store_get(auto_reload) && !router.hasInteruptHandler) {
+    router.reload();
+  } else {
+    get("errors").then((v) => {
+      errors.set(v);
+    }, log_error);
+    notify(_("File change detected. Click to reload."), "warning", () => {
+      router.reload();
+    });
+  }
+}
+
+/**
+ * Check the `changed` API endpoint.
+ *
+ * Updates of the mtime returned by this endpoint will fire the appropriate events if some
  * file changed.
  *
  * This will be scheduled every 5 seconds.
  */
 function pollForChanges(): void {
-  get("changed").then((changed) => {
-    if (changed) {
-      has_changes.set(true);
-      if (store_get(fava_options).auto_reload) {
-        router.reload();
-      } else {
-        get("errors").then((v) => {
-          errors.set(v);
-        }, log_error);
-        notify(_("File change detected. Click to reload."), "warning", () => {
-          router.reload();
-        });
-      }
-    }
-  }, log_error);
+  get("changed").catch(log_error);
 }
 
 function init(): void {
@@ -105,13 +120,8 @@ function init(): void {
       initial_mtime = false;
       return;
     }
-    get("ledger_data")
-      .then((v) => {
-        ledgerData.set(v);
-      })
-      .catch((e) => {
-        notify_err(e, (err) => `Error fetching ledger data: ${err.message}`);
-      });
+    has_changes.set(true);
+    onChanges();
   });
 
   router.init(frontend_routes);
@@ -127,6 +137,8 @@ function init(): void {
   });
 
   router.trigger("page-loaded");
+
+  init_color_scheme();
 }
 
 init();

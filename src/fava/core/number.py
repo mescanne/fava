@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import copy
+from collections.abc import Callable
 from decimal import Decimal
-from typing import Callable
 from typing import TYPE_CHECKING
 
 from babel.core import Locale
+from beancount.core.display_context import DisplayContext
 from beancount.core.display_context import Precision
 
 from fava.core.module_base import FavaModule
@@ -39,8 +40,9 @@ def get_locale_format(locale: Locale | None, precision: int) -> Formatter:
         return fmt
 
     pattern = copy.copy(locale.decimal_formats.get(None))
-    if not pattern:
-        raise ValueError("Expected Locale to have a decimal format pattern")
+    if not pattern:  # pragma: no cover
+        msg = "Expected Locale to have a decimal format pattern"
+        raise ValueError(msg)
     pattern.frac_prec = (precision, precision)
 
     def locale_fmt(num: Decimal) -> str:
@@ -59,11 +61,13 @@ class DecimalFormatModule(FavaModule):
         self._default_pattern = get_locale_format(None, 2)
         self.precisions: dict[str, int] = {}
 
-    def load_file(self) -> None:
+    def load_file(self) -> None:  # noqa: D102
         locale = None
 
         locale_option = self.ledger.fava_options.locale
-        if self.ledger.options["render_commas"] and not locale_option:
+        if (
+            self.ledger.options["render_commas"] and not locale_option
+        ):  # pragma: no cover
             locale_option = "en"
             self.ledger.fava_options.locale = locale_option
 
@@ -71,6 +75,7 @@ class DecimalFormatModule(FavaModule):
             locale = Locale.parse(locale_option)
 
         dcontext = self.ledger.options["dcontext"]
+        assert isinstance(dcontext, DisplayContext)  # noqa: S101
         precisions: dict[str, int] = {}
         for currency, ccontext in dcontext.ccontexts.items():
             prec = ccontext.get_fractional(Precision.MOST_COMMON)

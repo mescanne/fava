@@ -4,20 +4,19 @@
   import { _ } from "../i18n";
 
   type ContextBalance = Record<string, string[]>;
-  export let entry: EntryBaseAttributes;
-  export let balances_before: ContextBalance | null;
-  export let balances_after: ContextBalance | null;
+  interface Props {
+    entry: EntryBaseAttributes;
+    balances_before: ContextBalance | null;
+    balances_after: ContextBalance | null;
+  }
+
+  let { entry, balances_before, balances_after }: Props = $props();
 </script>
 
 <p>
   {_("Location")}:
   <code>
-    <a
-      href={urlForSource(
-        entry.meta.filename?.toString() ?? "",
-        entry.meta.lineno?.toString() ?? ""
-      )}
-    >
+    <a href={$urlForSource(entry.meta.filename, entry.meta.lineno)}>
       {entry.meta.filename}:{entry.meta.lineno}
     </a>
   </code>
@@ -36,11 +35,11 @@
           </tr>
         </thead>
         <tbody>
-          {#each Object.entries(balances_before) as [account, inventory]}
+          {#each Object.entries(balances_before) as [account, inventory] (account)}
             <tr>
               <td><a href={$urlForAccount(account)}>{account}</a></td>
               <td>
-                {#each inventory as amount}
+                {#each inventory as amount (amount)}
                   {amount}
                   <br />
                 {/each}
@@ -56,11 +55,11 @@
           </tr>
         </thead>
         <tbody>
-          {#each Object.entries(balances_after) as [account, inventory]}
+          {#each Object.entries(balances_after) as [account, inventory] (account)}
             <tr>
               <td><a href={$urlForAccount(account)}>{account}</a></td>
               <td>
-                {#each inventory as amount}
+                {#each inventory as amount (amount)}
                   {amount}
                   <br />
                 {/each}
@@ -72,3 +71,12 @@
     </div>
   </details>
 {/if}
+
+<style>
+  code {
+    display: inline-block;
+    max-width: 80%;
+    padding: 2px 4px;
+    vertical-align: top;
+  }
+</style>

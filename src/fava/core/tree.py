@@ -5,23 +5,27 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 from operator import attrgetter
-from typing import Dict
-from typing import Iterable
 from typing import TYPE_CHECKING
 
 from fava.beans.abc import Open
 from fava.beans.account import parent as account_parent
 from fava.context import g
+from fava.core.conversion import AT_VALUE
 from fava.core.conversion import cost_or_value
 from fava.core.conversion import get_cost
 from fava.core.inventory import CounterInventory
 
 if TYPE_CHECKING:  # pragma: no cover
     import datetime
+    from collections.abc import Iterable
+    from collections.abc import Sequence
+
+    from beancount.core import data
 
     from fava.beans.abc import Directive
     from fava.beans.prices import FavaPriceMap
     from fava.beans.types import BeancountOptions
+    from fava.core.conversion import Conversion
     from fava.core.inventory import SimpleCounterInventory
 
 
@@ -32,22 +36,16 @@ class SerialisedTreeNode:
     account: str
     balance: SimpleCounterInventory
     balance_children: SimpleCounterInventory
-    children: list[SerialisedTreeNode]
+    children: Sequence[SerialisedTreeNode]
     has_txns: bool
-
-
-@dataclass(frozen=True)
-class SerialisedTreeNodeWithCost(SerialisedTreeNode):
-    """A serialised TreeNode with cost."""
-
-    cost: SimpleCounterInventory
-    cost_children: SimpleCounterInventory
+    cost: SimpleCounterInventory | None = None
+    cost_children: SimpleCounterInventory | None = None
 
 
 class TreeNode:
     """A node in the account tree."""
 
-    __slots__ = ("name", "children", "balance", "balance_children", "has_txns")
+    __slots__ = ("balance", "balance_children", "children", "has_txns", "name")
 
     def __init__(self, name: str) -> None:
         #: Account name.
@@ -63,12 +61,12 @@ class TreeNode:
 
     def serialise(
         self,
-        conversion: str,
+        conversion: str | Conversion,
         prices: FavaPriceMap,
         end: datetime.date | None,
         *,
         with_cost: bool = False,
-    ) -> SerialisedTreeNode | SerialisedTreeNodeWithCost:
+    ) -> SerialisedTreeNode:
         """Serialise the account.
 
         Args:
@@ -82,7 +80,7 @@ class TreeNode:
             for child in sorted(self.children, key=attrgetter("name"))
         ]
         return (
-            SerialisedTreeNodeWithCost(
+            SerialisedTreeNode(
                 self.name,
                 cost_or_value(self.balance, conversion, prices, end),
                 cost_or_value(self.balance_children, conversion, prices, end),
@@ -101,18 +99,17 @@ class TreeNode:
             )
         )
 
-    def serialise_with_context(
-        self,
-    ) -> SerialisedTreeNode | SerialisedTreeNodeWithCost:
+    def serialise_with_context(self) -> SerialisedTreeNode:
+        """Serialise, getting all parameters from Flask context."""
         return self.serialise(
-            g.conversion,
+            g.conv,
             g.ledger.prices,
             g.filtered.end_date,
-            with_cost=g.conversion == "at_value",
+            with_cost=g.conv == AT_VALUE,
         )
 
 
-class Tree(Dict[str, TreeNode]):
+class Tree(dict[str, TreeNode]):
     """Account tree.
 
     Args:
@@ -122,7 +119,7 @@ class Tree(Dict[str, TreeNode]):
 
     def __init__(
         self,
-        entries: Iterable[Directive] | None = None,
+        entries: Iterable[Directive | data.Directive] | None = None,
         create_accounts: list[str] | None = None,
     ) -> None:
         super().__init__(self)

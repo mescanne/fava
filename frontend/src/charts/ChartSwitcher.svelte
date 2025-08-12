@@ -3,31 +3,34 @@
   import type { KeySpec } from "../keyboard-shortcuts";
   import { keyboardShortcut } from "../keyboard-shortcuts";
   import { lastActiveChartName, showCharts } from "../stores/chart";
-
+  import type { FavaChart } from ".";
   import Chart from "./Chart.svelte";
   import ConversionAndInterval from "./ConversionAndInterval.svelte";
 
-  import type { FavaChart } from ".";
+  interface Props {
+    charts: readonly FavaChart[];
+  }
 
-  export let charts: readonly FavaChart[];
+  let { charts }: Props = $props();
 
-  $: active_chart =
-    charts.find((c) => c.name === $lastActiveChartName) ?? charts?.[0];
+  let active_chart = $derived(
+    charts.find((c) => c.name === $lastActiveChartName) ?? charts[0],
+  );
 
   // Get the shortcut key for jumping to the previous chart.
-  $: shortcutPrevious = (index: number): KeySpec | undefined => {
+  let shortcutPrevious = $derived((index: number): KeySpec | undefined => {
     const current = active_chart ? charts.indexOf(active_chart) : -1;
     return index === (current - 1 + charts.length) % charts.length
       ? { key: "C", note: _("Previous") }
       : undefined;
-  };
+  });
   // Get the shortcut key for jumping to the next chart.
-  $: shortcutNext = (index: number): KeySpec | undefined => {
+  let shortcutNext = $derived((index: number): KeySpec | undefined => {
     const current = active_chart ? charts.indexOf(active_chart) : -1;
     return index === (current + 1 + charts.length) % charts.length
       ? { key: "c", note: _("Next") }
       : undefined;
-  };
+  });
 </script>
 
 {#if active_chart}
@@ -35,12 +38,12 @@
     <ConversionAndInterval />
   </Chart>
   <div hidden={!$showCharts}>
-    {#each charts as chart, index}
+    {#each charts as chart, index (chart.name)}
       <button
         type="button"
         class="unset"
         class:selected={chart === active_chart}
-        on:click={() => {
+        onclick={() => {
           $lastActiveChartName = chart.name;
         }}
         use:keyboardShortcut={shortcutPrevious(index)}
@@ -71,5 +74,20 @@
   button.selected,
   button:hover {
     color: var(--text-color-lighter);
+  }
+
+  @media print {
+    button {
+      display: none;
+      border-left: none;
+    }
+
+    button + button {
+      border-left: none;
+    }
+
+    button.selected {
+      display: inline;
+    }
   }
 </style>

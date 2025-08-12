@@ -4,8 +4,12 @@
   import { _ } from "../../i18n";
   import { keyboardShortcut } from "../../keyboard-shortcuts";
 
-  export let value: string;
-  export let submit: () => void;
+  interface Props {
+    value: string;
+    submit: () => void;
+  }
+
+  let { value = $bindable(), submit }: Props = $props();
 
   const { editor, renderEditor } = initQueryEditor(
     value,
@@ -13,16 +17,23 @@
       value = state.sliceDoc();
     },
     _("...enter a BQL query. 'help' to list available commands."),
-    submit
+    submit,
   );
 
-  $: if (value !== editor.state.sliceDoc()) {
-    editor.dispatch(replaceContents(editor.state, value));
-  }
+  $effect(() => {
+    if (value !== editor.state.sliceDoc()) {
+      editor.dispatch(replaceContents(editor.state, value));
+    }
+  });
 </script>
 
-<form on:submit|preventDefault={submit}>
-  <div use:renderEditor />
+<form
+  onsubmit={(event) => {
+    event.preventDefault();
+    submit();
+  }}
+>
+  <div use:renderEditor></div>
   <button type="submit" use:keyboardShortcut={"Control+Enter"}>
     {_("Submit")}
   </button>

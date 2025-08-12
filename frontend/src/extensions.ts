@@ -5,7 +5,7 @@
 
 import { get as store_get } from "svelte/store";
 
-import { getUrlPath, urlFor } from "./helpers";
+import { getUrlPath, urlForRaw } from "./helpers";
 import { fetch } from "./lib/fetch";
 import { log_error } from "./log";
 import { extensions } from "./stores";
@@ -22,9 +22,10 @@ export class ExtensionApi {
     body?: unknown,
     output: "json" | "string" | "raw" = "json",
   ): Promise<unknown> {
-    const url = urlFor(`extension/${this.name}/${endpoint}`, params, false);
+    const $urlForRaw = store_get(urlForRaw);
+    const url = $urlForRaw(`extension/${this.name}/${endpoint}`, params);
     let opts = {};
-    if (body) {
+    if (body != null) {
       opts =
         body instanceof FormData
           ? { body }
@@ -44,22 +45,25 @@ export class ExtensionApi {
   }
 
   /** GET an endpoint with parameters and return JSON. */
-  get(endpoint: string, params: Record<string, string>): Promise<unknown> {
+  async get(
+    endpoint: string,
+    params: Record<string, string>,
+  ): Promise<unknown> {
     return this.request(endpoint, "GET", params, undefined);
   }
 
   /** GET an endpoint with a body and return JSON. */
-  put(endpoint: string, body?: unknown): Promise<unknown> {
+  async put(endpoint: string, body?: unknown): Promise<unknown> {
     return this.request(endpoint, "PUT", undefined, body);
   }
 
   /** POST to an endpoint with a body and return JSON. */
-  post(endpoint: string, body?: unknown): Promise<unknown> {
+  async post(endpoint: string, body?: unknown): Promise<unknown> {
     return this.request(endpoint, "POST", undefined, body);
   }
 
   /** DELETE an endpoint and return JSON. */
-  delete(endpoint: string): Promise<unknown> {
+  async delete(endpoint: string): Promise<unknown> {
     return this.request(endpoint, "DELETE");
   }
 }
@@ -106,7 +110,8 @@ class ExtensionData {
 }
 
 async function loadExtensionModule(name: string): Promise<ExtensionData> {
-  const url = urlFor(`extension_js_module/${name}.js`, undefined, false);
+  const $urlForRaw = store_get(urlForRaw);
+  const url = $urlForRaw(`extension_js_module/${name}.js`);
   const mod = await (import(url) as Promise<{ default?: ExtensionModule }>);
   if (typeof mod.default === "object") {
     return new ExtensionData(mod.default, { api: new ExtensionApi(name) });
@@ -144,8 +149,8 @@ export function handleExtensionPageLoad(): void {
       })
       .catch(log_error);
   }
-  const path = getUrlPath(window.location);
-  if (path?.startsWith("extension/")) {
+  const path = getUrlPath(window.location) ?? "";
+  if (path.startsWith("extension/")) {
     for (const { name } of exts) {
       if (path.startsWith(`extension/${name}`)) {
         getOrInitExtension(name)

@@ -1,24 +1,31 @@
 <script lang="ts">
   import { leaf } from "../../lib/account";
   import type { TreeNode } from "../../lib/tree";
-
+  import { toggle_account, toggled_accounts } from "../../stores/accounts";
+  import Accounts from "./Accounts.svelte";
   import { selectedAccount } from "./stores";
 
-  export let node: TreeNode<{ name: string; count: number }>;
-  export let move: (m: { account: string; filename: string }) => void;
+  interface Props {
+    node: TreeNode<{ name: string; count: number }>;
+    move: (m: { account: string; filename: string }) => void;
+  }
 
-  let expanded = true;
-  let drag = false;
+  let { node, move }: Props = $props();
+  let account = $derived(node.name);
 
-  $: hasChildren = node.children.length > 0;
-  $: selected = $selectedAccount === node.name;
+  let drag = $state(false);
+  let is_toggled = $derived($toggled_accounts.has(account));
+
+  let hasChildren = $derived(node.children.length > 0);
+  let selected = $derived($selectedAccount === node.name);
 
   /**
    * Start drag if a document filename is dragged onto an account.
    * @param event - The drag event that is passed to the event handler.
    */
   function dragenter(event: DragEvent) {
-    if (event.dataTransfer?.types.includes("fava/filename")) {
+    const types = event.dataTransfer?.types ?? [];
+    if (types.includes("fava/filename")) {
       event.preventDefault();
       drag = true;
     }
@@ -29,25 +36,26 @@
    * @param event - The drag event that is passed to the event handler.
    */
   function drop(event: DragEvent) {
+    event.preventDefault();
     const filename = event.dataTransfer?.getData("fava/filename");
-    if (filename) {
+    if (filename != null) {
       move({ account: node.name, filename });
       drag = false;
     }
   }
 </script>
 
-{#if node.name}
+{#if account}
   <p
-    on:dragenter={dragenter}
-    on:dragover={dragenter}
-    on:dragleave={() => {
+    ondragenter={dragenter}
+    ondragover={dragenter}
+    ondragleave={() => {
       drag = false;
     }}
-    on:drop|preventDefault={drop}
-    title={node.name}
+    ondrop={drop}
+    title={account}
     class="droptarget"
-    data-account-name={node.name}
+    data-account-name={account}
     class:selected
     class:drag
   >
@@ -55,29 +63,29 @@
       <button
         type="button"
         class="unset toggle"
-        on:click={(ev) => {
-          expanded = !expanded;
-          ev.stopPropagation();
-        }}>{expanded ? "▾" : "▸"}</button
+        onclick={(event) => {
+          toggle_account(account, event);
+          event.stopPropagation();
+        }}>{is_toggled ? "▸" : "▾"}</button
       >
     {/if}
     <button
       type="button"
       class="unset leaf"
-      on:click={() => {
-        $selectedAccount = selected ? "" : node.name;
-      }}>{leaf(node.name)}</button
+      onclick={() => {
+        $selectedAccount = selected ? "" : account;
+      }}>{leaf(account)}</button
     >
     {#if node.count > 0}
       <span class="count"> {node.count}</span>
     {/if}
   </p>
 {/if}
-{#if hasChildren}
-  <ul hidden={!expanded}>
-    {#each node.children as child}
+{#if hasChildren && !is_toggled}
+  <ul>
+    {#each node.children as child (child.name)}
       <li>
-        <svelte:self node={child} {move} />
+        <Accounts node={child} {move} />
       </li>
     {/each}
   </ul>

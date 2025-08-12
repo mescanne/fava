@@ -7,7 +7,6 @@ import { syntaxTree } from "@codemirror/language";
 import { get as store_get } from "svelte/store";
 
 import { accounts, currencies, links, payees, tags } from "../stores";
-
 import { beancountSnippets } from "./beancount-snippets";
 
 const undatedDirectives = ["option", "plugin", "include"];
@@ -55,7 +54,7 @@ export const beancountCompletion: CompletionSource = (context) => {
     };
   }
 
-  const indented = context.matchBefore(/^\s+[A-Z]\S*/);
+  const indented = context.matchBefore(/^\s+\S+/);
   if (indented) {
     const indentation = indented.text.length - indented.text.trimStart().length;
     return {

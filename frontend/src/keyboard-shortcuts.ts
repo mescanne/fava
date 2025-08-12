@@ -23,8 +23,8 @@ function showTooltip(target: HTMLElement, description: string): () => void {
     targetRect.left +
     Math.min((target.offsetWidth - tooltip.offsetWidth) / 2, 10);
   const top = targetRect.top + (target.offsetHeight - tooltip.offsetHeight) / 2;
-  tooltip.style.left = `${left}px`;
-  tooltip.style.top = `${top + window.scrollY}px`;
+  tooltip.style.left = `${left.toString()}px`;
+  tooltip.style.top = `${(top + window.scrollY).toString()}px`;
   return () => {
     tooltip.remove();
     if (hidden) {
@@ -40,7 +40,7 @@ function showTooltips(): () => void {
   const removes: (() => void)[] = [];
   document.querySelectorAll("[data-key]").forEach((el) => {
     const key = el.getAttribute("data-key");
-    if (el instanceof HTMLElement && key !== null) {
+    if (el instanceof HTMLElement && key != null) {
       removes.push(showTooltip(el, key));
     }
   });
@@ -148,8 +148,6 @@ function keydown(event: KeyboardEvent): void {
   }
 }
 
-document.addEventListener("keydown", keydown);
-
 /** A type to specify a platform-dependent keyboard shortcut. */
 export type KeySpec =
   | KeyCombo
@@ -157,7 +155,7 @@ export type KeySpec =
 
 const isMac =
   // This still seems to be the least bad way to check whether we are running on macOS or iOS
-  // eslint-disable-next-line deprecation/deprecation
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   navigator.platform.startsWith("Mac") || navigator.platform === "iPhone";
 
 export const modKey = isMac ? "Cmd" : "Ctrl";
@@ -170,7 +168,7 @@ function getKeySpecKey(spec: KeySpec): KeyCombo {
   if (typeof spec === "string") {
     return spec;
   }
-  return isMac ? spec.mac ?? spec.key : spec.key;
+  return isMac ? (spec.mac ?? spec.key) : spec.key;
 }
 
 /**
@@ -181,8 +179,8 @@ function getKeySpecDescription(spec: KeySpec): string {
   if (typeof spec === "string") {
     return spec;
   }
-  const key = isMac ? spec.mac ?? spec.key : spec.key;
-  return spec.note ? `${key} - ${spec.note}` : key;
+  const key = isMac ? (spec.mac ?? spec.key) : spec.key;
+  return spec.note != null ? `${key} - ${spec.note}` : key;
 }
 
 /**
@@ -195,11 +193,9 @@ function bindKey(spec: KeySpec, handler: KeyboardShortcutAction): () => void {
   const key = getKeySpecKey(spec);
   const sequence = key.split(" ");
   if (sequence.length > 2) {
-    // eslint-disable-next-line no-console
     console.error("Only key sequences of length <=2 are supported: ", key);
   }
   if (keyboardShortcuts.has(key)) {
-    // eslint-disable-next-line no-console
     console.warn("Duplicate keyboard shortcut: ", key, handler);
   }
   keyboardShortcuts.set(key, handler);
@@ -220,24 +216,29 @@ export const keyboardShortcut: Action<HTMLElement, KeySpec | undefined> = (
   spec,
 ) => {
   const setup = (s?: KeySpec) => {
-    if (s) {
+    if (s != null) {
       node.setAttribute("data-key", getKeySpecDescription(s));
-      return bindKey(s, node);
+      const unbind = bindKey(s, node);
+      return () => {
+        unbind();
+        node.removeAttribute("data-key");
+      };
     }
-    node.removeAttribute("data-key");
-    return () => {};
+    return () => {
+      // pass
+    };
   };
-  let unbind = setup(spec);
+  let destroy = setup(spec);
 
   return {
-    destroy: unbind,
+    destroy,
     update(new_spec) {
-      unbind();
+      destroy();
       // Await tick so that key bindings that might have been removed from other
       // elements in the same render are gone.
       tick()
         .then(() => {
-          unbind = setup(new_spec);
+          destroy = setup(new_spec);
         })
         .catch(log_error);
     },
@@ -245,9 +246,11 @@ export const keyboardShortcut: Action<HTMLElement, KeySpec | undefined> = (
 };
 
 /**
- * Register the keys to show/hide the tooltips
+ * Register the keys to show/hide the tooltips and register the global keydown handler.
  */
 export function initGlobalKeyboardShortcuts(): void {
+  document.addEventListener("keydown", keydown);
+
   bindKey("?", () => {
     const hide = showTooltips();
     const once = () => {

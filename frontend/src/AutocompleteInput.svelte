@@ -1,75 +1,113 @@
 <!--
   @component
   An autocomplete input for fuzzy selection of suggestions.
+
+  It receives its `value` and a list of possible `suggestions`. Matching suggestions will be
+  shown in a dropdown below the input field and can be selected by clicking or by keyboard.
+
+  This is an implementation of the Combobox pattern as described by the
+  ARIA Authoring Practices Guide (APG) at
+    https://www.w3.org/WAI/ARIA/apg/patterns/combobox/
+  In particular it should match the Editable Combobox With List Autocomplete example at
+    https://www.w3.org/WAI/ARIA/apg/patterns/combobox/examples/combobox-autocomplete-list/
 -->
 <script lang="ts">
-  import { createEventDispatcher } from "svelte";
-
   import type { KeySpec } from "./keyboard-shortcuts";
   import { keyboardShortcut } from "./keyboard-shortcuts";
-  import { fuzzyfilter, fuzzywrap } from "./lib/fuzzy";
+  import { fuzzyfilter, fuzzywrap, type FuzzyWrappedText } from "./lib/fuzzy";
 
-  const dispatch = createEventDispatcher<{
-    blur: HTMLInputElement;
-    enter: HTMLInputElement;
-    select: HTMLInputElement;
-  }>();
-
-  /** The currently entered value. */
-  export let value: string;
-  /** The suggestions for the value. */
-  export let suggestions: readonly string[];
-  /** A placeholder for the input field. */
-  export let placeholder = "";
-  /** A function to extract the string that should be used for suggestion filtering. */
-  export let valueExtractor:
-    | ((val: string, input: HTMLInputElement) => string)
-    | null = null;
-  /** A function to update the value after selecting a suggestion. */
-  export let valueSelector:
-    | ((val: string, input: HTMLInputElement) => string)
-    | null = null;
-  /** Automatically adjust the size of the input element. */
-  export let setSize = false;
-  /** An optional class name to assign to the input element. */
-  export let className: string | undefined = undefined;
-  /** A key binding to add for this input. */
-  export let key: KeySpec | undefined = undefined;
-  /** A function that checks the entered value for validity. */
-  export let checkValidity: ((val: string) => string) | undefined = undefined;
-  /** Whether to show a button to clear the input. */
-  export let clearButton = false;
-
-  let filteredSuggestions: { suggestion: string; innerHTML: string }[] = [];
-  let hidden = true;
-  let index = -1;
-  let input: HTMLInputElement;
-
-  $: size = setSize
-    ? Math.max(value.length, placeholder.length) + 1
-    : undefined;
-
-  $: if (input && checkValidity) {
-    input.setCustomValidity(checkValidity(value));
+  interface Props {
+    /** The currently entered value (bindable). */
+    value: string;
+    /** A placeholder for the input field. */
+    placeholder: string;
+    /** The suggestions for the value. */
+    suggestions: readonly string[];
+    /** A function to extract the string that should be used for suggestion filtering. */
+    valueExtractor?: (val: string, input: HTMLInputElement) => string;
+    /** A function to update the value after selecting a suggestion. */
+    valueSelector?: (val: string, input: HTMLInputElement) => string;
+    /** Automatically adjust the size of the input element. */
+    setSize?: boolean;
+    /** An optional class name to assign to the input element. */
+    className?: string | undefined;
+    /** A key binding to add for this input. */
+    key?: KeySpec;
+    /** A function that checks the entered value for validity. */
+    checkValidity?: (val: string) => string;
+    /** Whether to mark the input as required. */
+    required?: boolean | undefined;
+    /** Whether to show a button to clear the input. */
+    clearButton?: boolean;
+    /** An event handler to run on blur. */
+    onBlur?: (el: HTMLInputElement) => void;
+    /** An event handler to run on enter. */
+    onEnter?: (el: HTMLInputElement) => void;
+    /** An event handler to run on an element being selected. */
+    onSelect?: (el: HTMLInputElement) => void;
   }
 
-  $: {
-    const val = input && valueExtractor ? valueExtractor(value, input) : value;
-    const filtered = fuzzyfilter(val, suggestions)
+  let {
+    value = $bindable(),
+    placeholder,
+    suggestions,
+    valueExtractor,
+    valueSelector,
+    setSize = false,
+    className,
+    key,
+    checkValidity,
+    clearButton = false,
+    required,
+    onBlur,
+    onEnter,
+    onSelect,
+  }: Props = $props();
+
+  const uid = $props.id();
+  const autocomple_id = `combobox-autocomplete-${uid.toString()}`;
+
+  let hidden = $state.raw(true);
+  let index = $state.raw(-1);
+  let input: HTMLInputElement | undefined = $state.raw();
+
+  let size = $derived(
+    setSize ? Math.max(value.length, placeholder.length) + 1 : undefined,
+  );
+  let extractedValue = $derived(
+    input && valueExtractor ? valueExtractor(value, input) : value,
+  );
+  let filteredSuggestions: {
+    suggestion: string;
+    fuzzywrapped: FuzzyWrappedText;
+  }[] = $derived.by(() => {
+    const filtered = fuzzyfilter(extractedValue, suggestions)
       .slice(0, 30)
       .map((suggestion) => ({
         suggestion,
-        innerHTML: fuzzywrap(val, suggestion),
+        fuzzywrapped: fuzzywrap(extractedValue, suggestion),
       }));
-    filteredSuggestions =
-      filtered.length === 1 && filtered[0]?.suggestion === val ? [] : filtered;
+    return filtered.length === 1 && filtered[0]?.suggestion === extractedValue
+      ? []
+      : filtered;
+  });
+
+  $effect(() => {
+    const msg = checkValidity ? checkValidity(value) : "";
+    input?.setCustomValidity(msg);
+  });
+
+  $effect.pre(() => {
+    // ensure the index is pointing to a valid element.
     index = Math.min(index, filteredSuggestions.length - 1);
-  }
+  });
 
   function select(suggestion: string) {
     value =
       input && valueSelector ? valueSelector(suggestion, input) : suggestion;
-    dispatch("select", input);
+    if (input) {
+      onSelect?.(input);
+    }
     hidden = true;
   }
 
@@ -79,23 +117,27 @@
     }
   }
 
+  let expanded = $derived(!hidden && filteredSuggestions.length > 0);
+
   function keydown(event: KeyboardEvent) {
     if (event.key === "Enter") {
       const suggestion = filteredSuggestions[index]?.suggestion;
-      if (index > -1 && !hidden && suggestion) {
+      if (index > -1 && !hidden && suggestion != null) {
         event.preventDefault();
         select(suggestion);
-      } else {
-        dispatch("enter", input);
+      } else if (input) {
+        onEnter?.(input);
       }
     } else if (event.key === " " && event.ctrlKey) {
       hidden = false;
     } else if (event.key === "Escape") {
-      if (!hidden && filteredSuggestions.length > 0) {
-        event.stopPropagation();
+      event.stopPropagation();
+      if (expanded) {
         index = -1;
+        hidden = true;
+      } else {
+        value = "";
       }
-      hidden = true;
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
       index = index === 0 ? filteredSuggestions.length - 1 : index - 1;
@@ -110,21 +152,25 @@
   <input
     type="text"
     autocomplete="off"
+    role="combobox"
+    aria-expanded={expanded}
+    aria-controls={autocomple_id}
     bind:value
     bind:this={input}
     use:keyboardShortcut={key}
-    on:blur={() => {
+    onblur={(event) => {
       hidden = true;
-      dispatch("blur", input);
+      onBlur?.(event.currentTarget);
     }}
-    on:focus={() => {
+    onfocus={() => {
       hidden = false;
     }}
-    on:input={() => {
+    oninput={() => {
       hidden = false;
     }}
-    on:keydown={keydown}
+    onkeydown={keydown}
     {placeholder}
+    {required}
     {size}
   />
   {#if clearButton && value}
@@ -132,26 +178,34 @@
       type="button"
       tabindex={-1}
       class="muted round"
-      on:click={() => {
+      onclick={() => {
         value = "";
-        dispatch("select", input);
+        if (input) {
+          onSelect?.(input);
+        }
       }}
     >
       ×
     </button>
   {/if}
   {#if filteredSuggestions.length}
-    <ul {hidden}>
-      {#each filteredSuggestions as { innerHTML, suggestion }, i}
-        <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
+    <ul {hidden} role="listbox" id={autocomple_id}>
+      {#each filteredSuggestions as { fuzzywrapped, suggestion }, i (suggestion)}
         <li
+          role="option"
+          aria-selected={i === index}
           class:selected={i === index}
-          on:mousedown={(ev) => {
+          onmousedown={(ev) => {
             mousedown(ev, suggestion);
           }}
         >
-          <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-          {@html innerHTML}
+          {#each fuzzywrapped as [type, text], i (i)}
+            {#if type === "text"}
+              {text}
+            {:else}
+              <span>{text}</span>
+            {/if}
+          {/each}
         </li>
       {/each}
     </ul>
@@ -174,7 +228,7 @@
     overflow: hidden auto;
     background-color: var(--background);
     border: 1px solid var(--border-darker);
-    box-shadow: 0 3px 3px var(--border);
+    box-shadow: var(--box-shadow-dropdown);
   }
 
   :global(aside) ul {
@@ -203,11 +257,17 @@
     background: transparent;
   }
 
-  li :global(span) {
+  li span {
     height: 1.2em;
     padding: 0 0.05em;
     margin: 0 -0.05em;
     background-color: var(--autocomplete-match);
     border-radius: 2px;
+  }
+
+  @media print {
+    button {
+      display: none;
+    }
   }
 </style>

@@ -9,6 +9,8 @@ from fava.util.date import END_OF_YEAR
 from fava.util.ranking import ExponentialDecayRanker
 
 if TYPE_CHECKING:  # pragma: no cover
+    from collections.abc import Sequence
+
     from fava.beans.abc import Directive
     from fava.beans.abc import Transaction
     from fava.core import FavaLedger
@@ -16,7 +18,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
 
 def get_active_years(
-    entries: list[Directive],
+    entries: Sequence[Directive],
     fye: FiscalYearEnd,
 ) -> list[str]:
     """Return active years, with support for fiscal years.
@@ -45,7 +47,7 @@ def get_active_years(
         date = entry.date
         year = (
             entry.date.year + 1
-            if date.month > month or date.month == month and date.day > day
+            if date.month > month or (date.month == month and date.day > day)
             else entry.date.year
         )
         if year != prev_year:
@@ -59,14 +61,14 @@ class AttributesModule(FavaModule):
 
     def __init__(self, ledger: FavaLedger) -> None:
         super().__init__(ledger)
-        self.accounts: list[str] = []
-        self.currencies: list[str] = []
-        self.payees: list[str] = []
-        self.links: list[str] = []
-        self.tags: list[str] = []
-        self.years: list[str] = []
+        self.accounts: Sequence[str] = []
+        self.currencies: Sequence[str] = []
+        self.payees: Sequence[str] = []
+        self.links: Sequence[str] = []
+        self.tags: Sequence[str] = []
+        self.years: Sequence[str] = []
 
-    def load_file(self) -> None:
+    def load_file(self) -> None:  # noqa: D102
         all_entries = self.ledger.all_entries
 
         all_links = set()
@@ -105,7 +107,7 @@ class AttributesModule(FavaModule):
         self.currencies = currency_ranker.sort()
         self.payees = payee_ranker.sort()
 
-    def payee_accounts(self, payee: str) -> list[str]:
+    def payee_accounts(self, payee: str) -> Sequence[str]:
         """Rank accounts for the given payee."""
         account_ranker = ExponentialDecayRanker(self.accounts)
         transactions = self.ledger.all_entries_by_type.Transaction
@@ -122,3 +124,20 @@ class AttributesModule(FavaModule):
             if txn.payee == payee:
                 return txn
         return None
+
+    def narration_transaction(self, narration: str) -> Transaction | None:
+        """Get the last transaction for a narration."""
+        transactions = self.ledger.all_entries_by_type.Transaction
+        for txn in reversed(transactions):
+            if txn.narration == narration:
+                return txn
+        return None
+
+    @property
+    def narrations(self) -> Sequence[str]:
+        """Get the narrations of all transactions."""
+        narration_ranker = ExponentialDecayRanker()
+        for txn in self.ledger.all_entries_by_type.Transaction:
+            if txn.narration:
+                narration_ranker.update(txn.narration, txn.date)
+        return narration_ranker.sort()

@@ -1,14 +1,15 @@
+import { mount, unmount } from "svelte";
+
 import { delegate } from "../lib/events";
 import { sortableJournal } from "../sort";
 import { fql_filter } from "../stores/filters";
 import { journalShow } from "../stores/journal";
-
 import JournalFilters from "./JournalFilters.svelte";
 
 /**
- * Escape the value to produce a valid regex.
+ * Escape the value to produce a valid regex for the Fava filter.
  */
-function escape(value: string): string {
+export function escape_for_regex(value: string): string {
   return value.replace(/[.*+\-?^${}()|[\]\\]/g, "\\$&");
 }
 
@@ -22,7 +23,7 @@ function addFilter(value: string): void {
   );
 }
 
-function handleClick({ target }: MouseEvent): void {
+function handleClick({ target }: Event): void {
   if (!(target instanceof HTMLElement) || target instanceof HTMLAnchorElement) {
     return;
   }
@@ -34,7 +35,7 @@ function handleClick({ target }: MouseEvent): void {
     // Filter for payees when clicking on them.
     // Note: any special characters in the payee string are escaped so the
     // filter matches against the payee literally.
-    addFilter(`payee:"^${escape(target.innerText)}$"`);
+    addFilter(`payee:"^${escape_for_regex(target.innerText)}$"`);
   } else if (target.tagName === "DT") {
     // Filter for metadata key when clicking on the key. The key tag text
     // includes the colon.
@@ -50,7 +51,7 @@ function handleClick({ target }: MouseEvent): void {
     // Filter for metadata key and value when clicking on the value. The key
     // tag text includes the colon.
     const key = (target.previousElementSibling as HTMLElement).innerText;
-    const value = `"^${escape(target.innerText)}$"`;
+    const value = `"^${escape_for_regex(target.innerText)}$"`;
     const expr = `${key}${value}`;
     if (target.closest(".postings")) {
       // Posting metadata.
@@ -61,16 +62,18 @@ function handleClick({ target }: MouseEvent): void {
     }
   } else if (target.closest(".indicators")) {
     // Toggle postings and metadata by clicking on indicators.
-    const entry = target.closest(".transaction");
+    const entry = target.closest(".journal > li");
     if (entry) {
-      entry.classList.toggle("show-postings");
+      entry.classList.toggle("show-full-entry");
     }
   }
 }
 
 export class FavaJournal extends HTMLElement {
-  component?: JournalFilters;
+  /** Unmount the Svelte component. */
+  unmount?: () => void;
 
+  /** Unsubscribe store listener. */
   unsubscribe?: () => void;
 
   connectedCallback(): void {
@@ -83,7 +86,10 @@ export class FavaJournal extends HTMLElement {
       const classes = [...show].map((s) => `show-${s}`).join(" ");
       ol.className = `flex-table journal ${classes}`;
     });
-    this.component = new JournalFilters({ target: this, anchor: ol });
+    const component = mount(JournalFilters, { target: this, anchor: ol });
+    this.unmount = () => {
+      void unmount(component);
+    };
 
     sortableJournal(ol);
     delegate(this, "click", "li", handleClick);
@@ -91,6 +97,6 @@ export class FavaJournal extends HTMLElement {
 
   disconnectedCallback(): void {
     this.unsubscribe?.();
-    this.component?.$destroy();
+    this.unmount?.();
   }
 }

@@ -4,105 +4,114 @@
   import { quadtree } from "d3-quadtree";
   import { scaleLinear, scaleUtc } from "d3-scale";
   import { area, curveStepAfter, line } from "d3-shape";
-  import type { Writable } from "svelte/store";
 
   import { chartToggledCurrencies, lineChartMode } from "../stores/chart";
   import { ctx, short } from "../stores/format";
-
   import Axis from "./Axis.svelte";
-  import { currenciesScale, padExtent } from "./helpers";
+  import { currenciesScale, includeZero, padExtent } from "./helpers";
   import type { LineChart, LineChartDatum } from "./line";
   import type { TooltipFindNode } from "./tooltip";
   import { positionedTooltip } from "./tooltip";
 
-  export let chart: LineChart;
-  export let width: number;
-  export let legend: Writable<[string, string | null][]>;
+  interface Props {
+    chart: LineChart;
+    width: number;
+  }
+
+  let { chart, width }: Props = $props();
 
   const today = new Date();
   const margin = { top: 10, right: 10, bottom: 30, left: 40 };
   const height = 250;
-  $: innerWidth = width - margin.left - margin.right;
-  $: innerHeight = height - margin.top - margin.bottom;
+  let innerWidth = $derived(width - margin.left - margin.right);
+  let innerHeight = $derived(height - margin.top - margin.bottom);
 
-  $: data = chart.filter($chartToggledCurrencies);
-  $: series_names = chart.series_names;
-
-  $: legend.set(series_names.map((c) => [c, $currenciesScale(c)]));
+  let data = $derived(chart.filter($chartToggledCurrencies));
 
   // Scales and quadtree
-  $: allValues = data.map((d) => d.values).flat(1);
+  let allValues = $derived(data.flatMap((d) => d.values));
 
-  $: xExtent = [
+  let xExtent = $derived([
     min(data, (s) => s.values[0]?.date) ?? today,
     max(data, (s) => s.values[s.values.length - 1]?.date) ?? today,
-  ] as const;
-  $: x = scaleUtc([0, innerWidth]).domain(xExtent);
-  $: yExtent = extent(allValues, (v) => v.value);
+  ] as const);
+  let x = $derived(scaleUtc([0, innerWidth]).domain(xExtent));
+  let valueExtent = $derived(extent(allValues, (v) => v.value));
+  // Include zero in area charts so the entire area is shown, not a cropped part of it
+  let yExtent = $derived(
+    $lineChartMode === "area" ? includeZero(valueExtent) : valueExtent,
+  );
   // Span y-axis as max minus min value plus 5 percent margin
-  $: y = scaleLinear([innerHeight, 0]).domain(padExtent(yExtent));
+  let y = $derived(scaleLinear([innerHeight, 0]).domain(padExtent(yExtent)));
 
   // Quadtree for hover.
-  $: quad = quadtree(
-    allValues,
-    (d) => x(d.date),
-    (d) => y(d.value)
+  let quad = $derived(
+    quadtree(
+      allValues,
+      (d) => x(d.date),
+      (d) => y(d.value),
+    ),
   );
 
-  $: lineShape = line<LineChartDatum>()
-    .x((d) => x(d.date))
-    .y((d) => y(d.value))
-    .curve(curveStepAfter);
+  let lineShape = $derived(
+    line<LineChartDatum>()
+      .x((d) => x(d.date))
+      .y((d) => y(d.value))
+      .curve(curveStepAfter),
+  );
 
-  $: areaShape = area<LineChartDatum>()
-    .x((d) => x(d.date))
-    .y1((d) => y(d.value))
-    .y0(Math.min(innerHeight, y(0)))
-    .curve(curveStepAfter);
+  let areaShape = $derived(
+    area<LineChartDatum>()
+      .x((d) => x(d.date))
+      .y1((d) => y(d.value))
+      .y0(Math.min(innerHeight, y(0)))
+      .curve(curveStepAfter),
+  );
 
   // Axes
-  $: xAxis = axisBottom(x).tickSizeOuter(0);
-  $: yAxis = axisLeft(y)
-    .tickPadding(6)
-    .tickSize(-innerWidth)
-    .tickFormat($short);
+  let xAxis = $derived(axisBottom(x).tickSizeOuter(0));
+  let yAxis = $derived(
+    axisLeft(y).tickPadding(6).tickSize(-innerWidth).tickFormat($short),
+  );
 
   const tooltipFindNode: TooltipFindNode = (xPos, yPos) => {
     const d = quad.find(xPos, yPos);
     return d && [x(d.date), y(d.value), chart.tooltipText($ctx, d)];
   };
 
-  $: futureFilter = xExtent[1] > today ? "url(#desaturateFuture)" : undefined;
+  let futureFilter = $derived(
+    xExtent[1] > today ? "url(#desaturateFuture)" : undefined,
+  );
 </script>
 
-<svg {width} {height}>
+<svg viewBox={`0 0 ${width.toString()} ${height.toString()}`}>
   <filter id="desaturateFuture">
     <feColorMatrix type="saturate" values="0.5" x={x(today)} />
     <feBlend in2="SourceGraphic" />
   </filter>
   <g
     use:positionedTooltip={tooltipFindNode}
-    transform={`translate(${margin.left},${margin.top})`}
+    transform={`translate(${margin.left.toString()},${margin.top.toString()})`}
   >
     <Axis x axis={xAxis} {innerHeight} />
     <Axis y axis={yAxis} />
     {#if $lineChartMode === "area"}
       <g class="area" filter={futureFilter}>
-        {#each data as d}
+        {#each data as d (d.name)}
           <path d={areaShape(d.values)} fill={$currenciesScale(d.name)} />
         {/each}
       </g>
     {/if}
     <g class="lines" filter={futureFilter}>
-      {#each data as d}
+      {#each data as d (d.name)}
         <path d={lineShape(d.values)} stroke={$currenciesScale(d.name)} />
       {/each}
     </g>
     {#if $lineChartMode === "line"}
       <g>
-        {#each data as d}
+        {#each data as d (d.name)}
           <g fill={$currenciesScale(d.name)}>
-            {#each d.values as v}
+            {#each d.values as v (v.date)}
               <circle
                 r="2"
                 cx={x(v.date)}

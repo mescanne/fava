@@ -3,38 +3,46 @@
 
   import type { AccountTreeNode } from "../charts/hierarchy";
   import { _ } from "../i18n";
-  import { currency_name, operating_currency } from "../stores";
-  import { collapse_account, invert_account } from "../stores/accounts";
-
+  import { currency_name } from "../stores";
+  import { invert_account } from "../stores/accounts";
+  import { operating_currency } from "../stores/options";
   import AccountCellHeader from "./AccountCellHeader.svelte";
-  import { get_collapsed, get_not_shown, setTreeTableContext } from "./helpers";
+  import { get_not_shown, setTreeTableNotShownContext } from "./helpers";
   import TreeTableNode from "./TreeTableNode.svelte";
 
-  /** The account tree to show. */
-  export let tree: AccountTreeNode;
-  /** The end date (for closed accounts). */
-  export let end: Date | null;
+  interface Props {
+    /** The account tree to show. */
+    tree: AccountTreeNode;
+    /** The end date (for closed accounts). */
+    end: Date | null;
+  }
 
-  // Initialize context.
-  // toggled is computed once on initialisation; not_shown is kept updated.
-  const toggled = writable(get_collapsed(tree, $collapse_account));
+  let { tree, end }: Props = $props();
+  let account = $derived(tree.account);
+
   const not_shown = writable(new Set<string>());
-  setTreeTableContext({ toggled, not_shown });
-  $: $not_shown = $get_not_shown(tree, end);
+  setTreeTableNotShownContext(not_shown);
+
+  $effect(() => {
+    $not_shown = $get_not_shown(tree, end);
+  });
 </script>
 
-<ol class="flex-table tree-table" class:wider={$operating_currency.length > 1}>
+<ol
+  class="flex-table tree-table-new"
+  class:wider={$operating_currency.length > 1}
+>
   <li class="head">
     <p>
-      <AccountCellHeader />
-      {#each $operating_currency as currency}
+      <AccountCellHeader {account} />
+      {#each $operating_currency as currency (currency)}
         <span class="num" title={$currency_name(currency)}>{currency}</span>
       {/each}
       <span class="num other">{_("Other")}</span>
     </p>
   </li>
-  {#each tree.account === "" ? tree.children : [tree] as n}
-    <TreeTableNode node={n} invert={$invert_account(n.account) ? -1 : 1} />
+  {#each account === "" ? tree.children : [tree] as node (node.account)}
+    <TreeTableNode {node} invert={$invert_account(node.account) ? -1 : 1} />
   {/each}
 </ol>
 

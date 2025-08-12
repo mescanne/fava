@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
+import os
 import re
 import threading
-from codecs import decode
 from codecs import encode
 from dataclasses import replace
 from hashlib import sha256
 from operator import attrgetter
 from pathlib import Path
-from typing import Iterable
 from typing import TYPE_CHECKING
 
 from markupsafe import Markup
@@ -28,6 +27,7 @@ from fava.beans.flags import FLAG_RETURNS
 from fava.beans.flags import FLAG_SUMMARIZE
 from fava.beans.flags import FLAG_TRANSFER
 from fava.beans.flags import FLAG_UNREALIZED
+from fava.beans.funcs import get_position
 from fava.beans.str import to_string
 from fava.core.module_base import FavaModule
 from fava.helpers import FavaAPIError
@@ -35,13 +35,15 @@ from fava.util import next_key
 
 if TYPE_CHECKING:  # pragma: no cover
     import datetime
+    from collections.abc import Iterable
+    from collections.abc import Sequence
 
     from fava.beans.abc import Directive
     from fava.core import FavaLedger
     from fava.core.fava_options import InsertEntryOption
 
 #: The flags to exclude when rendering entries.
-EXCL_FLAGS = {
+_EXCL_FLAGS = {
     FLAG_PADDING,  # P
     FLAG_SUMMARIZE,  # S
     FLAG_TRANSFER,  # T
@@ -52,7 +54,7 @@ EXCL_FLAGS = {
 }
 
 
-def sha256_str(val: str) -> str:
+def _sha256_str(val: str) -> str:
     """Hash a string."""
     return sha256(encode(val, encoding="utf-8")).hexdigest()
 
@@ -80,12 +82,23 @@ class InvalidUnicodeError(FavaAPIError):
         )
 
 
+def _file_newline_character(path: Path) -> str:
+    """Get the newline character of the file by looking at the first line."""
+    with path.open("rb") as file:
+        firstline = file.readline()
+        if firstline.endswith(b"\r\n"):
+            return "\r\n"
+        if firstline.endswith(b"\n"):
+            return "\n"
+        return os.linesep
+
+
 class FileModule(FavaModule):
     """Functions related to reading/writing to Beancount files."""
 
     def __init__(self, ledger: FavaLedger) -> None:
         super().__init__(ledger)
-        self.lock = threading.Lock()
+        self._lock = threading.Lock()
 
     def get_source(self, path: Path) -> tuple[str, str]:
         """Get source files.
@@ -97,22 +110,18 @@ class FileModule(FavaModule):
             A string with the file contents and the `sha256sum` of the file.
 
         Raises:
-            FavaAPIError: If the file at `path` is not one of the
-                source files or it contains invalid unicode.
+            NonSourceFileError: If the file is not one of the source files.
+            InvalidUnicodeError: If the file contains invalid unicode.
         """
         if str(path) not in self.ledger.options["include"]:
             raise NonSourceFileError(path)
 
-        with path.open(mode="rb") as file:
-            contents = file.read()
-
-        sha256sum = sha256(contents).hexdigest()
         try:
-            source = decode(contents)
+            source = path.read_text("utf-8")
         except UnicodeDecodeError as exc:
             raise InvalidUnicodeError(str(exc)) from exc
 
-        return source, sha256sum
+        return source, _sha256_str(source)
 
     def set_source(self, path: Path, source: str, sha256sum: str) -> str:
         """Write to source file.
@@ -126,22 +135,24 @@ class FileModule(FavaModule):
             The `sha256sum` of the updated file.
 
         Raises:
-            FavaAPIError: If the file at `path` is not one of the
-                source files or if the file was changed externally.
+            NonSourceFileError: If the file is not one of the source files.
+            InvalidUnicodeError: If the file contains invalid unicode.
+            ExternallyChangedError: If the file was changed externally.
         """
-        with self.lock:
+        with self._lock:
             _, original_sha256sum = self.get_source(path)
             if original_sha256sum != sha256sum:
                 raise ExternallyChangedError(path)
 
-            contents = encode(source, encoding="utf-8")
-            with path.open("w+b") as file:
-                file.write(contents)
+            newline = _file_newline_character(path)
+            with path.open("w", encoding="utf-8", newline=newline) as file:
+                file.write(source)
+            self.ledger.watcher.notify(path)
 
             self.ledger.extensions.after_write_source(str(path), source)
             self.ledger.load_file()
 
-            return sha256(contents).hexdigest()
+            return _sha256_str(source)
 
     def insert_metadata(
         self,
@@ -152,19 +163,21 @@ class FileModule(FavaModule):
         """Insert metadata into a file at lineno.
 
         Also, prevent duplicate keys.
+
+        Args:
+            entry_hash: Hash of an entry.
+            basekey: Key to insert metadata for.
+            value: Metadate value to insert.
         """
-        with self.lock:
+        with self._lock:
             self.ledger.changed()
-            entry: Directive = self.ledger.get_entry(entry_hash)
+            entry = self.ledger.get_entry(entry_hash)
             key = next_key(basekey, entry.meta)
             indent = self.ledger.fava_options.indent
-            insert_metadata_in_file(
-                Path(entry.meta["filename"]),
-                entry.meta["lineno"],
-                indent,
-                key,
-                value,
-            )
+            filename, lineno = get_position(entry)
+            path = Path(filename)
+            insert_metadata_in_file(path, lineno, indent, key, value)
+            self.ledger.watcher.notify(path)
             self.ledger.extensions.after_insert_metadata(entry, key, value)
 
     def save_entry_slice(
@@ -176,7 +189,7 @@ class FileModule(FavaModule):
         """Save slice of the source file for an entry.
 
         Args:
-            entry_hash: An entry.
+            entry_hash: Hash of an entry.
             source_slice: The lines that the entry should be replaced with.
             sha256sum: The sha256sum of the current lines of the entry.
 
@@ -186,50 +199,54 @@ class FileModule(FavaModule):
         Raises:
             FavaAPIError: If the entry is not found or the file changed.
         """
-        with self.lock:
+        with self._lock:
             entry = self.ledger.get_entry(entry_hash)
-            ret = save_entry_slice(entry, source_slice, sha256sum)
+            new_sha256sum = save_entry_slice(entry, source_slice, sha256sum)
+            self.ledger.watcher.notify(Path(get_position(entry)[0]))
             self.ledger.extensions.after_entry_modified(entry, source_slice)
-            return ret
+            return new_sha256sum
 
     def delete_entry_slice(self, entry_hash: str, sha256sum: str) -> None:
         """Delete slice of the source file for an entry.
 
         Args:
-            entry_hash: An entry.
+            entry_hash: Hash of an entry.
             sha256sum: The sha256sum of the current lines of the entry.
 
         Raises:
             FavaAPIError: If the entry is not found or the file changed.
         """
-        with self.lock:
+        with self._lock:
             entry = self.ledger.get_entry(entry_hash)
             delete_entry_slice(entry, sha256sum)
+            self.ledger.watcher.notify(Path(get_position(entry)[0]))
             self.ledger.extensions.after_delete_entry(entry)
 
-    def insert_entries(self, entries: list[Directive]) -> None:
+    def insert_entries(self, entries: Sequence[Directive]) -> None:
         """Insert entries.
 
         Args:
             entries: A list of entries.
         """
-        with self.lock:
+        with self._lock:
             self.ledger.changed()
             fava_options = self.ledger.fava_options
-            for entry in sorted(entries, key=incomplete_sortkey):
-                insert_options = fava_options.insert_entry
-                currency_column = fava_options.currency_column
-                indent = fava_options.indent
-                fava_options.insert_entry = insert_entry(
+            for entry in sorted(entries, key=_incomplete_sortkey):
+                path, updated_insert_options = insert_entry(
                     entry,
-                    self.ledger.beancount_file_path,
-                    insert_options,
-                    currency_column,
-                    indent,
+                    (
+                        self.ledger.fava_options.default_file
+                        or self.ledger.beancount_file_path
+                    ),
+                    insert_options=fava_options.insert_entry,
+                    currency_column=fava_options.currency_column,
+                    indent=fava_options.indent,
                 )
+                self.ledger.watcher.notify(path)
+                self.ledger.fava_options.insert_entry = updated_insert_options
                 self.ledger.extensions.after_insert_entry(entry)
 
-    def render_entries(self, entries: list[Directive]) -> Iterable[Markup]:
+    def render_entries(self, entries: Sequence[Directive]) -> Iterable[Markup]:
         """Return entries in Beancount format.
 
         Only renders :class:`.Balance` and :class:`.Transaction`.
@@ -243,12 +260,15 @@ class FileModule(FavaModule):
         indent = self.ledger.fava_options.indent
         for entry in entries:
             if isinstance(entry, (Balance, Transaction)):
-                if isinstance(entry, Transaction) and entry.flag in EXCL_FLAGS:
+                if (
+                    isinstance(entry, Transaction)
+                    and entry.flag in _EXCL_FLAGS
+                ):
                     continue
                 try:
-                    yield Markup(get_entry_slice(entry)[0] + "\n")
+                    yield Markup(get_entry_slice(entry)[0] + "\n")  # noqa: S704
                 except (KeyError, FileNotFoundError):
-                    yield Markup(
+                    yield Markup(  # noqa: S704
                         to_string(
                             entry,
                             self.ledger.fava_options.currency_column,
@@ -257,7 +277,7 @@ class FileModule(FavaModule):
                     )
 
 
-def incomplete_sortkey(entry: Directive) -> tuple[datetime.date, int]:
+def _incomplete_sortkey(entry: Directive) -> tuple[datetime.date, int]:
     """Sortkey for entries that might have incomplete metadata."""
     if isinstance(entry, Open):
         return (entry.date, -2)
@@ -285,12 +305,12 @@ def insert_metadata_in_file(
         contents = file.readlines()
 
     contents.insert(lineno, f'{" " * indent}{key}: "{value}"\n')
-
-    with path.open("w", encoding="utf-8") as file:
+    newline = _file_newline_character(path)
+    with path.open("w", encoding="utf-8", newline=newline) as file:
         file.write("".join(contents))
 
 
-def find_entry_lines(lines: list[str], lineno: int) -> list[str]:
+def find_entry_lines(lines: Sequence[str], lineno: int) -> Sequence[str]:
     """Lines of entry starting at lineno.
 
     Args:
@@ -319,14 +339,15 @@ def get_entry_slice(entry: Directive) -> tuple[str, str]:
         A string containing the lines of the entry and the `sha256sum` of
         these lines.
     """
-    path = Path(entry.meta["filename"])
+    filename, lineno = get_position(entry)
+    path = Path(filename)
     with path.open(encoding="utf-8") as file:
         lines = file.readlines()
 
-    entry_lines = find_entry_lines(lines, entry.meta["lineno"] - 1)
+    entry_lines = find_entry_lines(lines, lineno - 1)
     entry_source = "".join(entry_lines).rstrip("\n")
 
-    return entry_source, sha256_str(entry_source)
+    return entry_source, _sha256_str(entry_source)
 
 
 def save_entry_slice(
@@ -345,32 +366,35 @@ def save_entry_slice(
         The `sha256sum` of the new lines of the entry.
 
     Raises:
-        FavaAPIError: If the file at `path` is not one of the
-            source files.
+        ExternallyChangedError: If the file was changed externally.
     """
-    path = Path(entry.meta["filename"])
+    filename, lineno = get_position(entry)
+    path = Path(filename)
     with path.open(encoding="utf-8") as file:
         lines = file.readlines()
 
-    first_entry_line = entry.meta["lineno"] - 1
+    first_entry_line = lineno - 1
     entry_lines = find_entry_lines(lines, first_entry_line)
     entry_source = "".join(entry_lines).rstrip("\n")
-    if sha256_str(entry_source) != sha256sum:
+    if _sha256_str(entry_source) != sha256sum:
         raise ExternallyChangedError(path)
 
-    lines = (
-        lines[:first_entry_line]
-        + [source_slice + "\n"]
-        + lines[first_entry_line + len(entry_lines) :]
-    )
-    path = Path(entry.meta["filename"])
-    with path.open("w", encoding="utf-8") as file:
+    lines = [
+        *lines[:first_entry_line],
+        source_slice + "\n",
+        *lines[first_entry_line + len(entry_lines) :],
+    ]
+    newline = _file_newline_character(path)
+    with path.open("w", encoding="utf-8", newline=newline) as file:
         file.writelines(lines)
 
-    return sha256_str(source_slice)
+    return _sha256_str(source_slice)
 
 
-def delete_entry_slice(entry: Directive, sha256sum: str) -> None:
+def delete_entry_slice(
+    entry: Directive,
+    sha256sum: str,
+) -> None:
     """Delete slice of the source file for an entry.
 
     Args:
@@ -378,17 +402,17 @@ def delete_entry_slice(entry: Directive, sha256sum: str) -> None:
         sha256sum: The sha256sum of the current lines of the entry.
 
     Raises:
-        FavaAPIError: If the file at `path` is not one of the
-            source files.
+        ExternallyChangedError: If the file was changed externally.
     """
-    path = Path(entry.meta["filename"])
+    filename, lineno = get_position(entry)
+    path = Path(filename)
     with path.open(encoding="utf-8") as file:
         lines = file.readlines()
 
-    first_entry_line = entry.meta["lineno"] - 1
+    first_entry_line = lineno - 1
     entry_lines = find_entry_lines(lines, first_entry_line)
     entry_source = "".join(entry_lines).rstrip("\n")
-    if sha256_str(entry_source) != sha256sum:
+    if _sha256_str(entry_source) != sha256sum:
         raise ExternallyChangedError(path)
 
     # Also delete the whitespace following this entry
@@ -398,22 +422,22 @@ def delete_entry_slice(entry: Directive, sha256sum: str) -> None:
             line = lines[last_entry_line]
         except IndexError:
             break
-        if line.strip():
+        if line.strip():  # pragma: no cover
             break
-        last_entry_line += 1
+        last_entry_line += 1  # pragma: no cover
     lines = lines[:first_entry_line] + lines[last_entry_line:]
-    path = Path(entry.meta["filename"])
-    with path.open("w", encoding="utf-8") as file:
+    newline = _file_newline_character(path)
+    with path.open("w", encoding="utf-8", newline=newline) as file:
         file.writelines(lines)
 
 
 def insert_entry(
     entry: Directive,
     default_filename: str,
-    insert_options: list[InsertEntryOption],
+    insert_options: Sequence[InsertEntryOption],
     currency_column: int,
     indent: int,
-) -> list[InsertEntryOption]:
+) -> tuple[Path, Sequence[InsertEntryOption]]:
     """Insert an entry.
 
     Args:
@@ -424,7 +448,7 @@ def insert_entry(
         indent: Number of indent spaces.
 
     Returns:
-        A list of updated insert options.
+        A changed path and list of updated insert options.
     """
     filename, lineno = find_insert_position(
         entry,
@@ -443,26 +467,30 @@ def insert_entry(
     else:
         contents.insert(lineno, content + "\n")
 
-    with path.open("w", encoding="utf-8") as file:
+    newline = _file_newline_character(path)
+    with path.open("w", encoding="utf-8", newline=newline) as file:
         file.writelines(contents)
 
     if lineno is None:
-        return insert_options
+        return (path, insert_options)
 
     added_lines = content.count("\n") + 1
-    return [
-        (
-            replace(option, lineno=option.lineno + added_lines)
-            if option.filename == filename and option.lineno > lineno
-            else option
-        )
-        for option in insert_options
-    ]
+    return (
+        path,
+        [
+            (
+                replace(option, lineno=option.lineno + added_lines)
+                if option.filename == filename and option.lineno > lineno
+                else option
+            )
+            for option in insert_options
+        ],
+    )
 
 
 def find_insert_position(
     entry: Directive,
-    insert_options: list[InsertEntryOption],
+    insert_options: Sequence[InsertEntryOption],
     default_filename: str,
 ) -> tuple[str, int | None]:
     """Find insert position for an entry.

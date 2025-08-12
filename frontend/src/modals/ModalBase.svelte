@@ -5,14 +5,20 @@
    This tries to follow https://www.w3.org/TR/wai-aria-practices-1.1/#dialog_modal.
 -->
 <script lang="ts">
+  import type { Snippet } from "svelte";
   import type { Action } from "svelte/action";
 
   import { attemptFocus, getFocusableElements } from "../lib/focus";
   import { closeOverlay } from "../stores/url";
 
-  export let shown = false;
-  export let focus: string | undefined = undefined;
-  export let closeHandler = closeOverlay;
+  interface Props {
+    shown: boolean;
+    focus?: string;
+    closeHandler?: () => void;
+    children: Snippet;
+  }
+
+  let { shown, focus, closeHandler = closeOverlay, children }: Props = $props();
 
   /**
    * A Svelte action to handle focus within a modal.
@@ -37,7 +43,7 @@
     };
     document.addEventListener("keydown", keydown);
 
-    const selectorFocusEl = focus ? el.querySelector(focus) : undefined;
+    const selectorFocusEl = focus != null ? el.querySelector(focus) : undefined;
     const focusEl = selectorFocusEl ?? getFocusableElements(el)[0];
     if (focusEl) {
       attemptFocus(focusEl);
@@ -53,25 +59,24 @@
 
 {#if shown}
   <div class="overlay">
-    <div class="background" on:click={closeHandler} aria-hidden="true" />
+    <div class="background" onclick={closeHandler} aria-hidden="true"></div>
     <div class="content" use:handleFocus role="dialog" aria-modal="true">
-      <slot />
-      <button type="button" class="muted close" on:click={closeHandler}
-        >x</button
-      >
+      {@render children()}
+      <button type="button" class="muted close" onclick={closeHandler}>
+        x
+      </button>
     </div>
   </div>
 {/if}
 
 <style>
-  :global(body):has(.overlay) {
+  :global(body:has(.overlay)) {
     overflow: hidden;
   }
 
   .background {
     position: fixed;
-    top: 0;
-    left: 0;
+    inset: 0;
     width: 100%;
     height: 100%;
     cursor: pointer;
@@ -80,8 +85,7 @@
 
   .overlay {
     position: fixed;
-    top: 0;
-    left: 0;
+    inset: 0;
     z-index: var(--z-index-overlay);
     display: flex;
     align-items: start;
@@ -100,7 +104,7 @@
     margin: 0.5em;
     margin-top: 10vh;
     background: var(--background);
-    box-shadow: 0 0 20px var(--overlay-wrapper-background);
+    box-shadow: var(--box-shadow-overlay);
   }
 
   .close {
@@ -133,7 +137,7 @@
     .content {
       height: 100%;
       margin: 0;
-      box-shadow: none;
+      box-shadow: unset;
     }
   }
 </style>

@@ -1,14 +1,20 @@
+import { errorWithCauses } from "./lib/errors";
 import { log_error } from "./log";
 
 /** The notification list div, lazily created. */
 const notificationList = (() => {
   let value: HTMLDivElement | null = null;
   return () => {
-    if (value === null) {
+    if (value == null) {
       value = document.createElement("div");
       value.className = "notifications";
+      value.style.right = "10px";
       document.body.appendChild(value);
     }
+    // always update the distance to top to account for the current header height
+    const headerHeight =
+      document.querySelector("header")?.getBoundingClientRect().height ?? 50;
+    value.style.top = `${(headerHeight + 10).toString()}px`;
     return value;
   };
 })();
@@ -26,7 +32,6 @@ type NotificationType = "info" | "warning" | "error";
  */
 export function notify(
   msg: string,
-  // eslint-disable-next-line default-param-last
   cls: NotificationType = "info",
   callback?: () => void,
 ): void {
@@ -44,9 +49,21 @@ export function notify(
 }
 
 /**
+ * Notify the user about an warning and log to console.
+ */
+export function notify_warn(msg: string): void {
+  notify(msg, "warning");
+
+  console.warn(msg);
+}
+
+/**
  * Notify the user about an error and log to console.
  */
-export function notify_err(error: unknown, msg: (e: Error) => string): void {
+export function notify_err(
+  error: unknown,
+  msg: (e: Error) => string = errorWithCauses,
+): void {
   if (error instanceof Error) {
     notify(msg(error), "error");
   }

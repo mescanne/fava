@@ -11,14 +11,12 @@
   import { _ } from "../i18n";
   import { notify, notify_err } from "../notifications";
   import router from "../router";
-  import { options } from "../stores";
-
+  import { documents } from "../stores/options";
   import ModalBase from "./ModalBase.svelte";
 
-  $: shown = !!$files.length;
-  $: documents = $options.documents;
+  let shown = $derived(!!$files.length);
 
-  let documents_folder = "";
+  let documents_folder = $state("");
 
   function closeHandler() {
     $files = [];
@@ -26,18 +24,19 @@
     $hash = "";
   }
 
-  async function submit() {
+  async function submit(event: SubmitEvent) {
+    event.preventDefault();
     await Promise.all(
-      $files.map(({ dataTransferFile, name }) => {
+      $files.map(async ({ dataTransferFile, name }) => {
         const formData = new FormData();
         formData.append("account", $account);
         formData.append("hash", $hash);
         formData.append("folder", documents_folder);
         formData.append("file", dataTransferFile, name);
-        return put("add_document", formData).then(notify, (error) => {
+        return put("add_document", formData).then(notify, (error: unknown) => {
           notify_err(error, (err) => `Upload error: ${err.message}`);
         });
-      })
+      }),
     );
     closeHandler();
     router.reload();
@@ -45,9 +44,9 @@
 </script>
 
 <ModalBase {shown} {closeHandler}>
-  <form on:submit|preventDefault={submit}>
+  <form onsubmit={submit}>
     <h3>{_("Upload file(s)")}:</h3>
-    {#each $files as file}
+    {#each $files as file (file.dataTransferFile)}
       <div class="fieldset">
         <input class="file" bind:value={file.name} />
       </div>
@@ -56,14 +55,13 @@
       <label>
         <span>{_("Documents folder")}:</span>
         <select bind:value={documents_folder}>
-          {#each documents as folder}
+          {#each $documents as folder (folder)}
             <option>{folder}</option>
           {/each}
         </select>
       </label>
     </div>
     <div class="fieldset account">
-      <!-- svelte-ignore a11y-label-has-associated-control -->
       <label>
         <span>{_("Account")}:</span>
         <AccountInput bind:value={$account} />
@@ -82,11 +80,11 @@
     margin-bottom: 6px;
   }
 
-  .fieldset :global(span):first-child {
+  .fieldset > label > :global(span):first-child {
     margin-right: 8px;
   }
 
-  .fieldset.account :global(span):last-child {
+  .fieldset.account > label > :global(span):last-child {
     min-width: 25rem;
   }
 </style>

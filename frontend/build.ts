@@ -1,12 +1,9 @@
-/* eslint-disable import/no-extraneous-dependencies */
-/* eslint-disable no-console */
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import chokidar from "chokidar";
 import { context } from "esbuild";
 import svelte from "esbuild-svelte";
-import { typescript } from "svelte-preprocess-esbuild";
-
-import { compilerOptions } from "./tsconfig.json";
 
 /**
  * Create a debounced function.
@@ -34,15 +31,20 @@ async function runBuild(dev: boolean) {
     format: "esm",
     bundle: true,
     outfile: "../src/fava/static/app.js",
-    external: ["fs", "path"], // for web-tree-sitter
+    conditions: dev ? ["development"] : ["production"],
+    external: ["fs/promises", "module"], // for web-tree-sitter
     loader: {
       ".wasm": "file",
-      ".woff": "file",
+      ".woff": "empty",
       ".woff2": "file",
     },
-    plugins: [svelte({ preprocess: typescript() })],
+    plugins: [
+      svelte({
+        compilerOptions: { dev, runes: true },
+      }),
+    ],
     sourcemap: dev,
-    target: compilerOptions.target,
+    target: "esnext",
   });
   console.log("starting build");
   await ctx.rebuild();
@@ -58,7 +60,7 @@ async function runBuild(dev: boolean) {
         () => {
           console.log("finished rebuild");
         },
-        (err) => {
+        (err: unknown) => {
           console.error(err);
         },
       );
@@ -68,14 +70,19 @@ async function runBuild(dev: boolean) {
         awaitWriteFinish: true,
         ignoreInitial: true,
       })
-      .on("all", (eventName, path) => {
+      .on("all", (eventName: string, path: string) => {
         console.log(`${path} ${eventName}`);
         rebuild();
       });
   }
 }
 
-if (require.main === module) {
+const filename = fileURLToPath(import.meta.url);
+const is_main = resolve(process.argv[1] ?? "") === filename;
+
+if (is_main) {
   const dev = process.argv.includes("--watch");
-  runBuild(dev).catch(console.error);
+  runBuild(dev).catch((e: unknown) => {
+    console.error(e);
+  });
 }

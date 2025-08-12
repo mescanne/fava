@@ -1,24 +1,26 @@
 <script lang="ts">
   import { day } from "../format";
   import { urlForAccount } from "../helpers";
+  import { ancestors, leaf } from "../lib/account";
   import { account_details } from "../stores";
-
   import AccountIndicator from "./AccountIndicator.svelte";
 
-  export let account: string;
+  interface Props {
+    account: string;
+  }
 
-  $: parts = account.split(":");
+  let { account }: Props = $props();
 
-  $: details = $account_details[account];
-  $: last = details?.last_entry;
+  let parts = $derived(ancestors(account));
+  let details = $derived($account_details[account]);
+  let last = $derived(details?.last_entry);
 </script>
 
 <span class="droptarget" data-account-name={account}>
-  {#each parts as part, index}
-    {@const name = parts.slice(0, index + 1).join(":")}<a
-      href={$urlForAccount(name)}
-      title={name}>{part}</a
-    >{#if index < parts.length - 1}:{/if}{/each}
+  {#each parts as name, index (index)}
+    <a href={$urlForAccount(name)} title={name}>{leaf(name)}</a
+    >{#if index < parts.length - 1}:{/if}
+  {/each}
   <AccountIndicator {account} />
   {#if last}
     <span class="last-activity">

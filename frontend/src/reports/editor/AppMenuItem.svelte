@@ -5,25 +5,37 @@
   The default slot should filled with its vertically arranged sub-items.
 -->
 <script lang="ts">
-  /** The name of the menu item. */
-  export let name: string;
+  import type { Snippet } from "svelte";
 
-  let open = false;
+  interface Props {
+    /** The name of the menu item. */
+    name: string;
+    children: Snippet;
+  }
+
+  let { name, children }: Props = $props();
+
+  let open = $state(false);
 </script>
 
 <span
   class:open
   tabindex="0"
   role="menuitem"
-  on:keydown={(ev) => {
-    if (ev.key === "ArrowDown") {
+  onblur={() => {
+    open = false;
+  }}
+  onkeydown={(event) => {
+    if (event.key === "Escape") {
+      open = false;
+    } else if (event.key === "ArrowDown") {
       open = true;
     }
   }}
 >
   {name}
-  <ul>
-    <slot />
+  <ul role="menu">
+    {@render children()}
   </ul>
 </span>
 
@@ -35,7 +47,7 @@
 
   span.open,
   span:hover {
-    background-color: var(--background-darker);
+    background-color: var(--background-darkest);
   }
 
   span::after {
@@ -52,7 +64,7 @@
     overflow-y: auto;
     background-color: var(--background);
     border: 1px solid var(--border);
-    box-shadow: 0 3px 6px var(--transparent-black);
+    box-shadow: var(--box-shadow-dropdown);
   }
 
   span.open > ul,

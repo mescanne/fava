@@ -4,11 +4,16 @@ export type Interval = "year" | "quarter" | "month" | "week" | "day";
 
 export const DEFAULT_INTERVAL: Interval = "month";
 
+export const INTERVALS: Interval[] = [
+  "year",
+  "quarter",
+  "month",
+  "week",
+  "day",
+];
+
 export function getInterval(s: string | null): Interval {
-  if (s && ["year", "quarter", "month", "week", "day"].includes(s)) {
-    return s as Interval;
-  }
-  return DEFAULT_INTERVAL;
+  return INTERVALS.includes(s as Interval) ? (s as Interval) : DEFAULT_INTERVAL;
 }
 
 /** Get the translateable label for an interval. */

@@ -50,6 +50,10 @@
 {% endmacro %}
 
 {% macro querytable(ledger, contents, types, rows, filter_empty=None, footer=None) %}
+<p class="deprecation-notice">
+  The querytable macro is deprecated, please switch to the frontend-rendered query result.
+  See fava.ext.fava_ext_test for an example of how to use them.
+<p>
 {% if contents %}
 <pre><code>{{ contents }}</code></pre>
 {% elif types %}
@@ -82,13 +86,3 @@
 </table>
 {% endif %}
 {% endmacro %}
-
-{% macro download_links(query) -%}
-  <span class="download">
-    ({{ _('Download as') }}
-    <a href="{{ url_for('download_query', query_string=query, result_format='csv') }}" data-remote>CSV</a>{% if config['HAVE_EXCEL'] %},
-      <a href="{{ url_for('download_query', query_string=query, result_format='xlsx') }}" data-remote>XLSX</a>, or
-      <a href="{{ url_for('download_query', query_string=query, result_format='ods') }}" data-remote>ODS</a>
-    {% endif %})
-  </span>
-{%- endmacro %}

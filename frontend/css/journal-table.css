@@ -1,5 +1,10 @@
 /* stylelint-disable no-descending-specificity */
 
+.flex-table {
+  display: flex;
+  flex-direction: column;
+}
+
 .flex-table p,
 .flex-table li,
 .flex-table ul,
@@ -73,11 +78,19 @@
 .journal.show-note .note,
 .journal.show-open .open,
 .journal.show-pad .pad,
-.journal.show-query .query,
+.journal.show-query .query {
+  display: block;
+}
+
+/* Show metadata and postings if it was toggled for the whole journal. */
 .journal.show-metadata .metadata,
-.journal.show-postings .postings,
-.transaction.show-postings .postings,
-.transaction.show-postings .metadata {
+.journal.show-postings .postings {
+  display: block;
+}
+
+/* Show metadata and postings where it was explicitly toggled with the indicators. */
+.journal > li.show-full-entry .postings,
+.journal > li.show-full-entry .metadata {
   display: block;
 }
 
@@ -116,8 +129,10 @@
   cursor: pointer;
 }
 
+/* There's three number columns (units, cost, price).
+ * They should add about to about half of the width */
 .journal p > .num {
-  width: 9rem;
+  width: min(calc(15%), 20rem);
   border-left: 1px solid var(--table-border);
 }
 
@@ -128,7 +143,7 @@
 }
 
 .journal .datecell {
-  width: 5.5rem;
+  width: 6rem;
   white-space: nowrap;
 }
 
@@ -228,4 +243,55 @@
   color: var(--journal-metadata-indicator);
   text-transform: lowercase;
   border-radius: 20px;
+}
+
+@media (width <= 767px) {
+  .journal p {
+    flex-wrap: wrap;
+  }
+
+  /* show a colored top border for all entries */
+  .journal > li > p {
+    border-top: thin solid var(--entry-background);
+  }
+
+  .journal .head .flag {
+    flex-grow: 1;
+    text-align: left;
+  }
+
+  .journal .description {
+    flex: inherit;
+    order: 1; /* push to second row */
+    width: 100%;
+    padding-left: 0;
+  }
+
+  .journal .indicators {
+    flex-grow: 1;
+  }
+
+  .journal .balance .num {
+    width: 35%;
+  }
+
+  .journal .balance .change.num {
+    display: none;
+  }
+
+  .journal .postings .datecell,
+  .journal .postings .flag {
+    display: none;
+  }
+
+  .journal .postings .description {
+    flex-grow: 1;
+    order: inherit;
+    width: inherit;
+  }
+
+  .journal .metadata dt,
+  .journal .metadata dd {
+    margin-left: initial;
+  }
 }

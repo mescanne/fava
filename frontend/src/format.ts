@@ -16,14 +16,15 @@ export function localeFormatter(
   locale: string | null,
   precision = 2,
 ): (num: number) => string {
-  if (!locale) {
-    return format(`.${precision}f`);
+  if (locale == null) {
+    return format(`.${precision.toString()}f`);
   }
-  const opts = {
-    // this needs to be between 0 and 20
-    minimumFractionDigits: Math.max(0, Math.min(precision, 20)),
-  };
-  const fmt = new Intl.NumberFormat(locale.replace("_", "-"), opts);
+  // this needs to be between 0 and 20
+  const digits = Math.max(0, Math.min(precision, 20));
+  const fmt = new Intl.NumberFormat(locale.replace("_", "-"), {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
   return fmt.format.bind(fmt);
 }
 
@@ -32,11 +33,41 @@ export function formatPercentage(number: number): string {
   return `${formatterPer(Math.abs(number) * 100)}%`;
 }
 
+/** Obscure numbers for incognito mode. */
+export const replaceNumbers = (num: string): string =>
+  num.replace(/[0-9]/g, "X");
+
 export interface FormatterContext {
   /** Render an amount to a string like "2.00 USD". */
   amount: (num: number, currency: string) => string;
   /** Render an number for a currency like "2.00". */
   num: (num: number, currency: string) => string;
+}
+
+/** Build the formatter context for the given configuration */
+export function formatter_context(
+  incognito: boolean,
+  locale: string | null,
+  precisions: Record<string, number>,
+): FormatterContext {
+  const formatter = localeFormatter(locale);
+  const currencyFormatters = Object.fromEntries(
+    Object.entries(precisions).map(([currency, prec]) => [
+      currency,
+      localeFormatter(locale, prec),
+    ]),
+  );
+  const num_raw = (n: number, c: string) =>
+    (currencyFormatters[c] ?? formatter)(n);
+
+  const num = incognito
+    ? (n: number, c: string) => replaceNumbers(num_raw(n, c))
+    : num_raw;
+
+  return {
+    amount: (n, c) => `${num(n, c)} ${c}`,
+    num,
+  };
 }
 
 type DateFormatter = (date: Date) => string;
@@ -48,9 +79,9 @@ export const day = utcFormat("%Y-%m-%d");
 export const dateFormat: Record<Interval, DateFormatter> = {
   year: utcFormat("%Y"),
   quarter: (date) =>
-    `${date.getUTCFullYear()}Q${Math.floor(date.getUTCMonth() / 3) + 1}`,
+    `${date.getUTCFullYear().toString()}Q${(Math.floor(date.getUTCMonth() / 3) + 1).toString()}`,
   month: utcFormat("%b %Y"),
-  week: utcFormat("%YW%W"),
+  week: utcFormat("%GW%V"),
   day,
 };
 
@@ -58,9 +89,9 @@ export const dateFormat: Record<Interval, DateFormatter> = {
 export const timeFilterDateFormat: Record<Interval, DateFormatter> = {
   year: utcFormat("%Y"),
   quarter: (date) =>
-    `${date.getUTCFullYear()}-Q${Math.floor(date.getUTCMonth() / 3) + 1}`,
+    `${date.getUTCFullYear().toString()}-Q${(Math.floor(date.getUTCMonth() / 3) + 1).toString()}`,
   month: utcFormat("%Y-%m"),
-  week: utcFormat("%Y-W%W"),
+  week: utcFormat("%G-W%V"),
   day,
 };
 

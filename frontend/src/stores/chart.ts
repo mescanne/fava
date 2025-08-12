@@ -1,15 +1,13 @@
 import { derived, writable } from "svelte/store";
 
-import { _, format } from "../i18n";
+import { _ } from "../i18n";
 import iso4217currencies from "../lib/iso4217";
 import { localStorageSyncedStore } from "../lib/store";
-import { array, constant, string, union } from "../lib/validation";
-
-import {
-  conversion_currencies,
-  currencies_sorted,
-  operating_currency,
-} from ".";
+import type { ValidationT } from "../lib/validation";
+import { array, constants, string } from "../lib/validation";
+import { currencies_sorted } from ".";
+import { conversion_currencies } from "./fava_options";
+import { operating_currency } from "./options";
 
 /** Whether the charts should be shown - this applies globally to all charts. */
 export const showCharts = writable(true);
@@ -17,23 +15,32 @@ export const showCharts = writable(true);
 /** This store is used to switch to the same chart (as identified by name) on navigation. */
 export const lastActiveChartName = writable<string | null>(null);
 
+const hierarchy_chart_mode_validator = constants(
+  "treemap",
+  "sunburst",
+  "icicle",
+);
+type HierarchyChartMode = ValidationT<typeof hierarchy_chart_mode_validator>;
+
 /** The currently selected hierarchy chart mode. */
-export const hierarchyChartMode = localStorageSyncedStore<
-  "treemap" | "sunburst"
->(
+export const hierarchyChartMode = localStorageSyncedStore<HierarchyChartMode>(
   "hierarchy-chart-mode",
-  union(constant("treemap"), constant("sunburst")),
+  hierarchy_chart_mode_validator,
   () => "treemap",
   () => [
     ["treemap", _("Treemap")],
     ["sunburst", _("Sunburst")],
+    ["icicle", _("Icicle")],
   ],
 );
 
+const line_chart_mode_validator = constants("line", "area");
+type LineChartMode = ValidationT<typeof line_chart_mode_validator>;
+
 /** The currently selected line chart mode. */
-export const lineChartMode = localStorageSyncedStore<"line" | "area">(
+export const lineChartMode = localStorageSyncedStore<LineChartMode>(
   "line-chart-mode",
-  union(constant("line"), constant("area")),
+  line_chart_mode_validator,
   () => "line",
   () => [
     ["line", _("Line chart")],
@@ -41,10 +48,13 @@ export const lineChartMode = localStorageSyncedStore<"line" | "area">(
   ],
 );
 
+const bar_chart_mode_validator = constants("stacked", "single");
+type BarChartMode = ValidationT<typeof bar_chart_mode_validator>;
+
 /** The currently selected bar chart mode. */
-export const barChartMode = localStorageSyncedStore<"stacked" | "single">(
+export const barChartMode = localStorageSyncedStore<BarChartMode>(
   "bar-chart-mode",
-  union(constant("stacked"), constant("single")),
+  bar_chart_mode_validator,
   () => "stacked",
   () => [
     ["stacked", _("Stacked Bars")],
@@ -59,33 +69,25 @@ export const chartToggledCurrencies = localStorageSyncedStore(
   () => [],
 );
 
-/** The currency to show the treemap of. */
-export const treemapCurrency = writable<string | null>(null);
-
 /** The currencies to over as conversion options. */
 const currency_suggestions = derived(
   [operating_currency, currencies_sorted, conversion_currencies],
   ([$operating_currency, $currencies_sorted, $conversion_currencies]) =>
     $conversion_currencies.length > 0
       ? $conversion_currencies
-      : [
+      : new Set([
           ...$operating_currency,
-          ...$currencies_sorted.filter(
-            (c) => !$operating_currency.includes(c) && iso4217currencies.has(c),
-          ),
-        ],
+          ...$currencies_sorted.filter((c) => iso4217currencies.has(c)),
+        ]),
 );
 
 /** The possible conversion options and their human-readable descriptions. */
 export const conversions = derived(
   currency_suggestions,
-  ($currency_suggestions): [conversion: string, description: string][] => [
-    ["at_cost", _("At Cost")],
-    ["at_value", _("At Market Value")],
-    ["units", _("Units")],
-    ...$currency_suggestions.map((currency): [string, string] => [
-      currency,
-      format(_("Converted to %(currency)s"), { currency }),
-    ]),
+  ($currency_suggestions): readonly string[] => [
+    "at_cost",
+    "at_value",
+    "units",
+    ...$currency_suggestions,
   ],
 );

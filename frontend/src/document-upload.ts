@@ -18,11 +18,12 @@ import { notify, notify_err } from "./notifications";
  * We want to allow a drop if the dragged thing is either a file that could be
  * dragged from a file manager or a URL (as dragged from a document link in Fava).
  */
-function dragover(event: DragEvent, closestTarget: HTMLElement): void {
-  if (
-    event.dataTransfer?.types.includes("Files") ??
-    event.dataTransfer?.types.includes("text/uri-list")
-  ) {
+function dragover(event: Event, closestTarget: Element): void {
+  if (!(event instanceof DragEvent)) {
+    return;
+  }
+  const types = event.dataTransfer?.types ?? [];
+  if (types.includes("Files") || types.includes("text/uri-list")) {
     closestTarget.classList.add("dragover");
     event.preventDefault();
   }
@@ -30,7 +31,10 @@ function dragover(event: DragEvent, closestTarget: HTMLElement): void {
 delegate(document, "dragenter", ".droptarget", dragover);
 delegate(document, "dragover", ".droptarget", dragover);
 
-function dragleave(event: DragEvent, closestTarget: HTMLElement): void {
+function dragleave(event: Event, closestTarget: Element): void {
+  if (!(event instanceof DragEvent)) {
+    return;
+  }
   closestTarget.classList.remove("dragover");
   event.preventDefault();
 }
@@ -46,7 +50,10 @@ interface DroppedFile {
 }
 export const files: Writable<DroppedFile[]> = writable([]);
 
-function drop(event: DragEvent, target: HTMLElement): void {
+function drop(event: Event, target: Element): void {
+  if (!(event instanceof DragEvent)) {
+    return;
+  }
   target.classList.remove("dragover");
   event.preventDefault();
   event.stopPropagation();
@@ -78,13 +85,16 @@ function drop(event: DragEvent, target: HTMLElement): void {
     const url = event.dataTransfer.getData("URL");
     // Try to extract the filename from the URL.
     let filename = new URL(url).searchParams.get("filename");
-    if (filename && targetEntry) {
-      if (targetAccount && documentHasAccount(filename, targetAccount)) {
+    if (filename != null && targetEntry != null) {
+      if (
+        targetAccount != null &&
+        documentHasAccount(filename, targetAccount)
+      ) {
         filename = basename(filename);
       }
       put("attach_document", { filename, entry_hash: targetEntry }).then(
         notify,
-        (error) => {
+        (error: unknown) => {
           notify_err(
             error,
             (e) => `Adding document metadata failed: ${e.message}`,

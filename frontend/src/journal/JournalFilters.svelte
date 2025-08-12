@@ -1,7 +1,8 @@
-<script lang="ts" context="module">
+<script lang="ts" module>
   import { _, format } from "../i18n";
   import type { KeySpec } from "../keyboard-shortcuts";
   import { keyboardShortcut } from "../keyboard-shortcuts";
+  import { toggle } from "../lib/set";
   import { journalShow } from "../stores/journal";
 
   const toggleText = _("Toggle %(type)s entries");
@@ -16,7 +17,7 @@
     button_text: string,
     title: string | null,
     shortcut: KeySpec,
-    supertype?: string
+    supertype?: string,
   ][] = [
     ["open", "Open", null, "s o"],
     ["close", "Close", null, "s c"],
@@ -45,36 +46,34 @@
 </script>
 
 <script lang="ts">
-  $: shownSet = new Set($journalShow);
+  let shownSet = $derived(new Set($journalShow));
 
-  function toggle(type: string) {
+  function toggle_type(type: string) {
     journalShow.update((show) => {
       const set = new Set(show);
-      const toggle_func = set.has(type)
-        ? set.delete.bind(set)
-        : set.add.bind(set);
-      toggle_func(type);
+      toggle(set, type);
       // Also toggle all entries that have `type` as their supertype.
-      buttons.filter((b) => b[4] === type).forEach((b) => toggle_func(b[0]));
+      buttons.filter((b) => b[4] === type).forEach((b) => toggle(set, b[0]));
       return [...set].sort();
     });
   }
 
-  $: active = (type: string, supertype?: string): boolean =>
-    supertype
+  let active = $derived((type: string, supertype?: string): boolean =>
+    supertype != null
       ? shownSet.has(type) && shownSet.has(supertype)
-      : shownSet.has(type);
+      : shownSet.has(type),
+  );
 </script>
 
 <form class="flex-row">
-  {#each buttons as [type, button_text, title, shortcut, supertype]}
+  {#each buttons as [type, button_text, title, shortcut, supertype] (type)}
     <button
       type="button"
       title={title ?? format(toggleText, { type: button_text })}
       use:keyboardShortcut={shortcut}
       class:inactive={!active(type, supertype)}
-      on:click={() => {
-        toggle(type);
+      onclick={() => {
+        toggle_type(type);
       }}
     >
       {button_text}

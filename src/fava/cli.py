@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import errno
 import os
+from pathlib import Path
 
 import click
 from cheroot.wsgi import Server
@@ -12,7 +13,43 @@ from werkzeug.middleware.profiler import ProfilerMiddleware
 
 from fava import __version__
 from fava.application import create_app
+from fava.util import setup_debug_logging
 from fava.util import simple_wsgi
+
+
+class AddressInUse(click.ClickException):  # noqa: D101
+    def __init__(self, port: int) -> None:  # pragma: no cover
+        super().__init__(
+            f"Cannot start Fava because port {port} is already in use."
+            "\nPlease choose a different port with the '-p' option.",
+        )
+
+
+class NonAbsolutePathError(click.UsageError):  # noqa: D101
+    def __init__(self, path: str) -> None:
+        super().__init__(
+            f"Paths in BEANCOUNT_FILE need to be absolute: {path}"
+        )
+
+
+class NoFileSpecifiedError(click.UsageError):  # noqa: D101
+    def __init__(self) -> None:  # pragma: no cover
+        super().__init__("No file specified")
+
+
+def _add_env_filenames(filenames: tuple[str, ...]) -> tuple[str, ...]:
+    """Read additional filenames from BEANCOUNT_FILE."""
+    env_filename = os.environ.get("BEANCOUNT_FILE")
+    if not env_filename:
+        return tuple(dict.fromkeys(filenames))
+
+    env_names = env_filename.split(os.pathsep)
+    for name in env_names:
+        if not Path(name).is_absolute():
+            raise NonAbsolutePathError(name)
+
+    all_names = tuple(env_names) + filenames
+    return tuple(dict.fromkeys(all_names))
 
 
 @click.command(context_settings={"auto_envvar_prefix": "FAVA"})
@@ -48,7 +85,7 @@ from fava.util import simple_wsgi
 @click.option(
     "--read-only",
     is_flag=True,
-    help="Run in read-only mode, disabling any change through UI/API",
+    help="Run in read-only mode, disable any change through Fava.",
 )
 @click.option("-d", "--debug", is_flag=True, help="Turn on debugging.")
 @click.option(
@@ -61,10 +98,13 @@ from fava.util import simple_wsgi
     type=click.Path(),
     help="Output directory for profiling data.",
 )
+@click.option(
+    "--poll-watcher", is_flag=True, help="Use old polling-based watcher."
+)
 @click.version_option(version=__version__, prog_name="fava")
-def main(
+def main(  # noqa: PLR0913
     *,
-    filenames: tuple[str] = ("",),
+    filenames: tuple[str, ...] = (),
     port: int = 5000,
     host: str = "localhost",
     prefix: str | None = None,
@@ -73,28 +113,28 @@ def main(
     debug: bool = False,
     profile: bool = False,
     profile_dir: str | None = None,
+    poll_watcher: bool = False,
 ) -> None:  # pragma: no cover
     """Start Fava for FILENAMES on http://<host>:<port>.
 
     If the `BEANCOUNT_FILE` environment variable is set, Fava will use the
-    files (space-delimited) specified there in addition to FILENAMES.
+    files (delimited by ';' on Windows and ':' on POSIX) given there in
+    addition to FILENAMES.
 
-    Note you can also specify command-line options via environment variables.
-    For example, `--host=0.0.0.0` is equivalent to setting the environment
-    variable `FAVA_HOST=0.0.0.0`.
+    Note you can also specify command-line options via environment variables
+    with the `FAVA_` prefix. For example, `--host=0.0.0.0` is equivalent to
+    setting the environment variable `FAVA_HOST=0.0.0.0`.
     """
-    env_filename = os.environ.get("BEANCOUNT_FILE")
-    all_filenames = (
-        filenames + tuple(env_filename.split()) if env_filename else filenames
-    )
+    all_filenames = _add_env_filenames(filenames)
 
     if not all_filenames:
-        raise click.UsageError("No file specified")
+        raise NoFileSpecifiedError
 
     app = create_app(
-        set(all_filenames),
+        all_filenames,
         incognito=incognito,
         read_only=read_only,
+        poll_watcher=poll_watcher,
     )
 
     if prefix:
@@ -108,7 +148,7 @@ def main(
     # Debug mode if profiling is active
     debug = debug or profile
 
-    click.echo(f"Starting Fava on http://{host}:{port}")
+    click.secho(f"Starting Fava on http://{host}:{port}", fg="green")
     if not debug:
         server = Server((host, port), app)
         try:
@@ -118,17 +158,15 @@ def main(
             server.stop()
         except OSError as error:
             if "No socket could be created" in str(error):
-                click.echo(
-                    f"Cannot start Fava because port {port} is already in use."
-                    "\nPlease choose a different port with the '-p' option.",
-                )
+                raise AddressInUse(port) from error
             raise click.Abort from error
     else:
+        setup_debug_logging()
         if profile:
             app.wsgi_app = ProfilerMiddleware(  # type: ignore[method-assign]
                 app.wsgi_app,
                 restrictions=(30,),
-                profile_dir=profile_dir if profile_dir else None,
+                profile_dir=profile_dir or None,
             )
 
         app.jinja_env.auto_reload = True
@@ -136,11 +174,7 @@ def main(
             app.run(host, port, debug)
         except OSError as error:
             if error.errno == errno.EADDRINUSE:
-                click.echo(
-                    f"Cannot start Fava because port {port} is already in use."
-                    "\nPlease choose a different port with the '-p' option.",
-                )
-                raise click.Abort from error
+                raise AddressInUse(port) from error
             raise
 
 

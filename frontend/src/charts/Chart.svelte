@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { writable } from "svelte/store";
+  import type { Snippet } from "svelte";
 
   import {
     barChartMode,
@@ -7,9 +7,8 @@
     hierarchyChartMode,
     lineChartMode,
     showCharts,
-    treemapCurrency,
   } from "../stores/chart";
-
+  import type { FavaChart } from ".";
   import BarChart from "./BarChart.svelte";
   import ChartLegend from "./ChartLegend.svelte";
   import HierarchyContainer from "./HierarchyContainer.svelte";
@@ -17,34 +16,43 @@
   import ModeSwitch from "./ModeSwitch.svelte";
   import ScatterPlot from "./ScatterPlot.svelte";
 
-  import type { FavaChart } from ".";
+  interface Props {
+    /** The chart to render. */
+    chart: FavaChart;
+    /** Additional elements to render in the top right. */
+    children?: Snippet;
+  }
 
-  /**
-   * The chart to render.
-   */
-  export let chart: FavaChart;
+  let { chart, children }: Props = $props();
 
-  /**
-   * Width of the chart.
-   */
-  let width: number;
-
-  const treemap_currencies = writable<string[]>([]);
-  const legend = writable<[string, string | null][]>([]);
+  /** Width of the chart. */
+  let width: number | undefined = $state();
 </script>
 
 <div class="flex-row">
   {#if $showCharts}
-    {#if chart.type === "barchart" || chart.type === "linechart"}
-      <ChartLegend legend={$legend} toggled={chartToggledCurrencies} />
-    {/if}
-    {#if chart.type === "hierarchy" && $hierarchyChartMode === "treemap"}
+    {#if chart.type === "barchart"}
       <ChartLegend
-        legend={$treemap_currencies.map((c) => [c, null])}
-        active={treemapCurrency}
+        legend={chart.currencies}
+        color={!($barChartMode === "stacked" && chart.hasStackedData)}
+        toggled={chartToggledCurrencies}
       />
     {/if}
-    <span class="spacer" />
+    {#if chart.type === "linechart"}
+      <ChartLegend
+        legend={chart.series_names}
+        color={true}
+        toggled={chartToggledCurrencies}
+      />
+    {/if}
+    {#if chart.type === "hierarchy" && $hierarchyChartMode === "treemap" && chart.treemap_currency}
+      <ChartLegend
+        legend={chart.currencies}
+        color={false}
+        active={chart.treemap_currency}
+      />
+    {/if}
+    <span class="spacer"></span>
     {#if chart.type === "hierarchy"}
       <ModeSwitch store={hierarchyChartMode} />
     {:else if chart.type === "linechart"}
@@ -52,25 +60,26 @@
     {:else if chart.type === "barchart" && chart.hasStackedData}
       <ModeSwitch store={barChartMode} />
     {/if}
-  {:else}<span class="spacer" />{/if}
-  <slot />
+  {:else}<span class="spacer"></span>{/if}
+  {@render children?.()}
   <button
     type="button"
-    on:click={() => {
+    class="show-charts"
+    onclick={() => {
       showCharts.update((v) => !v);
     }}
-    class:closed={!$showCharts}
-    class="toggle-chart"
-  />
+  >
+    {$showCharts ? "▼" : "◀"}
+  </button>
 </div>
 <div hidden={!$showCharts} bind:clientWidth={width}>
   {#if width}
     {#if chart.type === "barchart"}
-      <BarChart {chart} {width} {legend} />
+      <BarChart {chart} {width} />
     {:else if chart.type === "hierarchy"}
-      <HierarchyContainer {chart} {width} {treemap_currencies} />
+      <HierarchyContainer {chart} {width} />
     {:else if chart.type === "linechart"}
-      <LineChart {chart} {width} {legend} />
+      <LineChart {chart} {width} />
     {:else if chart.type === "scatterplot"}
       <ScatterPlot {chart} {width} />
     {/if}
@@ -78,25 +87,9 @@
 </div>
 
 <style>
-  .toggle-chart {
-    height: 22px;
-    padding: 2px 6px;
-    margin: 0;
-  }
-
-  .toggle-chart::before {
-    display: block;
-    content: "";
-    border: 0;
-    border-top: 13px solid var(--background);
-    border-right: 9px solid transparent;
-    border-left: 9px solid transparent;
-  }
-
-  .toggle-chart.closed::before {
-    border: 0;
-    border-right: 9px solid transparent;
-    border-bottom: 13px solid var(--background);
-    border-left: 9px solid transparent;
+  @media print {
+    button.show-charts {
+      display: none;
+    }
   }
 </style>

@@ -9,6 +9,7 @@ from beancount.core.number import MISSING
 from beancount.core.position import CostSpec
 
 from fava.beans import create
+from fava.beans.funcs import hash_entry
 from fava.beans.helpers import replace
 from fava.beans.str import to_string
 from fava.core.charts import dumps
@@ -16,9 +17,14 @@ from fava.core.charts import loads
 from fava.helpers import FavaAPIError
 from fava.serialisation import deserialise
 from fava.serialisation import deserialise_posting
+from fava.serialisation import InvalidAmountError
 from fava.serialisation import serialise
 
 if TYPE_CHECKING:  # pragma: no cover
+    from typing import Any
+
+    from beancount.core.data import Meta
+
     from fava.beans.abc import Directive
 
     from .conftest import SnapshotFunc
@@ -38,9 +44,11 @@ def test_serialise_txn() -> None:
             create.posting("Assets:ETrade:GLD", "0 USD"),
         ],
     )
+    entry_hash = hash_entry(txn)
 
     json_txn = {
         "date": "2017-12-12",
+        "entry_hash": entry_hash,
         "flag": "*",
         "meta": {},
         "narration": "asdfasd",
@@ -58,10 +66,14 @@ def test_serialise_txn() -> None:
     assert serialised == json_txn
 
     json_txn["payee"] = ""
-    serialised = loads(dumps(serialise(replace(txn, payee=""))))
+    txn = replace(txn, payee="")
+    json_txn["entry_hash"] = hash_entry(txn)
+    serialised = loads(dumps(serialise(txn)))
     assert serialised == json_txn
 
-    serialised = loads(dumps(serialise(replace(txn, payee=None))))
+    txn = replace(txn, payee=None)
+    json_txn["entry_hash"] = hash_entry(txn)
+    serialised = loads(dumps(serialise(txn)))
     assert serialised == json_txn
 
 
@@ -73,7 +85,7 @@ def test_serialise_entry_types(
     2017-12-11 open Assets:Cash USD "STRICT"
     2017-12-13 balance Assets:Cash 1 USD
     2017-12-14 balance Assets:Cash 1 ~ 1.0 USD
-    2017-12-16 document Assets:Cash "/absolute/filename" #tag ^link
+    2017-12-16 document Assets:Cash "./tests/data/filename" #tag ^link
     2017-12-12 event "event name" "event description"
         bool-value: TRUE
         string-value: "value"
@@ -88,6 +100,7 @@ def test_serialise_entry_types(
 
     2018-12-15 commodity USD
     2018-12-16 price USD 1 EUR
+    2012-12-12 custom "string" 1 EUR FALSE
 
     2019-12-12 query "query name" "journal"
     """
@@ -95,26 +108,29 @@ def test_serialise_entry_types(
 
 
 @pytest.mark.parametrize(
-    ("amount_cost_price", "amount_string"),
+    ("amount_cost_price", "amount_string", "meta"),
     [
-        (("100 USD", None, None), "100 USD"),
+        (("100 USD", None, None), "100 USD", None),
+        (("100 USD", None, None), "100 USD", {"someKey": "someValue"}),
         (
             (
                 "100 USD",
-                CostSpec(Decimal("10"), None, "EUR", None, None, merge=False),
+                CostSpec(Decimal(10), None, "EUR", None, None, merge=False),
                 None,
             ),
             "100 USD {10 EUR}",
+            None,
         ),
         (
             (
                 "100 USD",
-                CostSpec(Decimal("10"), None, "EUR", None, None, merge=False),
+                CostSpec(Decimal(10), None, "EUR", None, None, merge=False),
                 "11 EUR",
             ),
             "100 USD {10 EUR} @ 11 EUR",
+            None,
         ),
-        (("100 USD", None, "11 EUR"), "100 USD @ 11 EUR"),
+        (("100 USD", None, "11 EUR"), "100 USD @ 11 EUR", None),
         (
             (
                 "100 USD",
@@ -129,43 +145,70 @@ def test_serialise_entry_types(
                 None,
             ),
             "100 USD {}",
+            None,
         ),
     ],
 )
 def test_serialise_posting(
     amount_cost_price: tuple[str, CostSpec | None, str],
     amount_string: str,
+    meta: Meta | None,
 ) -> None:
     amount, cost, price = amount_cost_price
-    pos = create.posting("Assets", amount, cost, price)  # type: ignore[arg-type]
-    json = {"account": "Assets", "amount": amount_string}
+    pos = create.posting(
+        "Assets",
+        amount,
+        cost,  # type: ignore[arg-type]
+        price,
+        flag=None,
+        meta=meta,
+    )
+    json: dict[str, Any] = {"account": "Assets", "amount": amount_string}
+    if meta:
+        json["meta"] = meta
     assert loads(dumps(serialise(pos))) == json
     assert deserialise_posting(json) == pos
 
 
 @pytest.mark.parametrize(
-    ("amount_cost_price", "amount_string"),
+    ("amount_cost_price", "amount_string", "meta"),
     [
-        (("100 USD", None, None), "10*10 USD"),
-        (("130 USD", None, None), "100+50 - 20 USD"),
-        (("-140 USD", None, None), "-1400 / 10 USD"),
-        (("10 USD", None, "1 EUR"), "10 USD @@ 10 EUR"),
+        (("100 USD", None, None), "10*10 USD", None),
+        (("130 USD", None, None), "100+50 - 20 USD", {"someKey": "someValue"}),
+        (("-140 USD", None, None), "-1400 / 10 USD", None),
+        (("10 USD", None, "1 EUR"), "10 USD @@ 10 EUR", None),
         (
             ("7 USD", None, "1.428571428571428571428571429 EUR"),
             "7 USD @@ 10 EUR",
+            None,
         ),
-        (("0 USD", None, "0 EUR"), "0 USD @@ 0 EUR"),
+        (("0 USD", None, "0 EUR"), "0 USD @@ 0 EUR", None),
     ],
 )
 def test_deserialise_posting(
     amount_cost_price: tuple[str, CostSpec | None, str | None],
     amount_string: str,
+    meta: Meta | None,
 ) -> None:
     """Roundtrip is not possible here due to total price or calculation."""
     amount, cost, price = amount_cost_price
-    pos = create.posting("Assets", amount, cost, price)  # type: ignore[arg-type]
-    json = {"account": "Assets", "amount": amount_string}
+    pos = create.posting(
+        "Assets",
+        amount,
+        cost,  # type: ignore[arg-type]
+        price,
+        flag=None,
+        meta=meta,
+    )
+    json: dict[str, Any] = {"account": "Assets", "amount": amount_string}
+    if meta is not None:
+        json["meta"] = meta
     assert deserialise_posting(json) == pos
+
+
+def test_deserialise_posting_invalid_amount() -> None:
+    with pytest.raises(InvalidAmountError):
+        deserialise_posting({"account": "Assets", "amount": "10 ////"})
 
 
 def test_deserialise_posting_and_format(snapshot: SnapshotFunc) -> None:
@@ -187,18 +230,19 @@ def test_deserialise_posting_and_format(snapshot: SnapshotFunc) -> None:
 
 def test_serialise_balance() -> None:
     bal = create.balance(
-        {},
-        datetime.date(2019, 9, 17),
-        "Assets:ETrade:Cash",
-        create.amount("0.1234567891011121314151617 CHF"),
-        None,
-        None,
+        meta={},
+        date=datetime.date(2019, 9, 17),
+        account="Assets:ETrade:Cash",
+        amount=create.amount("0.1234567891011121314151617 CHF"),
     )
+
+    entry_hash = hash_entry(bal)
 
     json = {
         "date": "2019-09-17",
         "amount": {"currency": "CHF", "number": "0.1234567891011121314151617"},
         "diff_amount": None,
+        "entry_hash": entry_hash,
         "meta": {},
         "tolerance": None,
         "account": "Assets:ETrade:Cash",
@@ -261,10 +305,10 @@ def test_deserialise_balance() -> None:
         "meta": {},
     }
     bal = create.balance(
-        {},
-        datetime.date(2017, 12, 12),
-        "Assets:ETrade:Cash",
-        "100 USD",
+        meta={},
+        date=datetime.date(2017, 12, 12),
+        account="Assets:ETrade:Cash",
+        amount="100 USD",
     )
     assert deserialise(json_bal) == bal
 
@@ -278,9 +322,19 @@ def test_deserialise_note() -> None:
         "meta": {},
     }
     note = create.note(
-        {},
-        datetime.date(2017, 12, 12),
-        "Assets:ETrade:Cash",
-        "This is some comment or note",
+        meta={},
+        date=datetime.date(2017, 12, 12),
+        account="Assets:ETrade:Cash",
+        comment="This is some comment or note",
     )
     assert deserialise(json_note) == note
+
+
+def test_deserialise_unknown() -> None:
+    json_custom = {
+        "t": "Custom",
+        "date": "2017-12-12",
+        "meta": {},
+    }
+    with pytest.raises(FavaAPIError):
+        deserialise(json_custom)

@@ -7,62 +7,24 @@ from abc import abstractmethod
 from typing import Any
 from typing import TYPE_CHECKING
 
-from beancount.core import amount
 from beancount.core import data
 from beancount.core import position
 
 if TYPE_CHECKING:  # pragma: no cover
     import datetime
+    from collections.abc import Mapping
+    from collections.abc import Sequence
     from decimal import Decimal
     from typing import TypeAlias
 
-    MetaValue: TypeAlias = Any
-    Meta: TypeAlias = dict[str, MetaValue]
+    from fava.beans import protocols
+
+    MetaValue: TypeAlias = (
+        str | int | bool | Decimal | datetime.date | protocols.Amount
+    )
+    Meta: TypeAlias = Mapping[str, MetaValue]
     TagsOrLinks: TypeAlias = set[str] | frozenset[str]
-
-
-class Amount(ABC):
-    """An amount in some currency."""
-
-    @property
-    @abstractmethod
-    def number(self) -> Decimal:
-        """Number of units in the amount."""
-
-    @property
-    @abstractmethod
-    def currency(self) -> str:
-        """Currency of the amount."""
-
-
-Amount.register(amount.Amount)
-
-
-class Cost(ABC):
-    """A cost (basically an amount with date and label)."""
-
-    @property
-    @abstractmethod
-    def number(self) -> Decimal:
-        """Number of units in the cost."""
-
-    @property
-    @abstractmethod
-    def currency(self) -> str:
-        """Currency of the cost."""
-
-    @property
-    @abstractmethod
-    def date(self) -> datetime.date:
-        """Date of the cost."""
-
-    @property
-    @abstractmethod
-    def label(self) -> str | None:
-        """Label of the cost."""
-
-
-Cost.register(position.Cost)
+    Account = str
 
 
 class Position(ABC):
@@ -70,12 +32,12 @@ class Position(ABC):
 
     @property
     @abstractmethod
-    def units(self) -> Amount:
+    def units(self) -> protocols.Amount:
         """Units of the posting."""
 
     @property
     @abstractmethod
-    def cost(self) -> Cost | None:
+    def cost(self) -> protocols.Cost | None:
         """Units of the position."""
 
 
@@ -92,17 +54,17 @@ class Posting(Position):
 
     @property
     @abstractmethod
-    def units(self) -> Amount:
+    def units(self) -> protocols.Amount:
         """Units of the posting."""
 
     @property
     @abstractmethod
-    def cost(self) -> Cost | None:
+    def cost(self) -> protocols.Cost | None:
         """Units of the posting."""
 
     @property
     @abstractmethod
-    def price(self) -> Amount | None:
+    def price(self) -> protocols.Amount | None:
         """Price of the posting."""
 
     @property
@@ -153,17 +115,17 @@ class Transaction(Directive):
 
     @property
     @abstractmethod
-    def postings(self) -> list[Posting]:
+    def postings(self) -> Sequence[Posting]:
         """Payee of the transaction."""
 
     @property
     @abstractmethod
-    def tags(self) -> TagsOrLinks:
+    def tags(self) -> frozenset[str]:
         """Entry tags."""
 
     @property
     @abstractmethod
-    def links(self) -> TagsOrLinks:
+    def links(self) -> frozenset[str]:
         """Entry links."""
 
 
@@ -177,7 +139,7 @@ class Balance(Directive):
 
     @property
     @abstractmethod
-    def diff_amount(self) -> Amount | None:
+    def diff_amount(self) -> protocols.Amount | None:
         """Account of the directive."""
 
 
@@ -209,7 +171,7 @@ class Custom(Directive):
 
     @property
     @abstractmethod
-    def values(self) -> list[Any]:
+    def values(self) -> Sequence[Any]:
         """Custom values."""
 
 
@@ -228,12 +190,12 @@ class Document(Directive):
 
     @property
     @abstractmethod
-    def tags(self) -> TagsOrLinks:
+    def tags(self) -> frozenset[str]:
         """Entry tags."""
 
     @property
     @abstractmethod
-    def links(self) -> TagsOrLinks:
+    def links(self) -> frozenset[str]:
         """Entry links."""
 
 
@@ -268,6 +230,16 @@ class Open(Directive):
     def account(self) -> str:
         """Account of the directive."""
 
+    @property
+    @abstractmethod
+    def currencies(self) -> Sequence[str]:
+        """Valid currencies for the account."""
+
+    @property
+    @abstractmethod
+    def booking(self) -> data.Booking | None:
+        """Booking method for the account."""
+
 
 class Pad(Directive):
     """A Beancount Pad directive."""
@@ -293,7 +265,7 @@ class Price(Directive):
 
     @property
     @abstractmethod
-    def amount(self) -> Amount:
+    def amount(self) -> protocols.Amount:
         """Price amount."""
 
 

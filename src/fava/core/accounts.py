@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import datetime
 from dataclasses import dataclass
 from dataclasses import field
-from typing import Dict
 from typing import TYPE_CHECKING
 
 from fava.beans.abc import Balance
@@ -17,33 +15,35 @@ from fava.core.group_entries import group_entries_by_account
 from fava.core.group_entries import TransactionPosting
 from fava.core.module_base import FavaModule
 from fava.core.tree import Tree
+from fava.util.date import local_today
 
 if TYPE_CHECKING:  # pragma: no cover
+    import datetime
+    from collections.abc import Sequence
+    from typing import Literal
+
     from fava.beans.abc import Directive
     from fava.beans.abc import Meta
     from fava.core.tree import TreeNode
 
 
 def get_last_entry(
-    txn_postings: list[Directive | TransactionPosting],
+    txn_postings: Sequence[Directive | TransactionPosting],
 ) -> Directive | None:
     """Last entry."""
     for txn_posting in reversed(txn_postings):
-        if (
-            isinstance(txn_posting, TransactionPosting)
-            and txn_posting.transaction.flag == FLAG_UNREALIZED
-        ):
-            continue
-
         if isinstance(txn_posting, TransactionPosting):
-            return txn_posting.transaction
-        return txn_posting
+            transaction = txn_posting.transaction
+            if transaction.flag != FLAG_UNREALIZED:
+                return transaction
+        else:
+            return txn_posting
     return None
 
 
 def uptodate_status(
-    txn_postings: list[Directive | TransactionPosting],
-) -> str | None:
+    txn_postings: Sequence[Directive | TransactionPosting],
+) -> Literal["green", "yellow", "red"] | None:
     """Status of the last balance or transaction.
 
     Args:
@@ -58,9 +58,7 @@ def uptodate_status(
     """
     for txn_posting in reversed(txn_postings):
         if isinstance(txn_posting, Balance):
-            if txn_posting.diff_amount:
-                return "red"
-            return "green"
+            return "red" if txn_posting.diff_amount else "green"
         if (
             isinstance(txn_posting, TransactionPosting)
             and txn_posting.transaction.flag != FLAG_UNREALIZED
@@ -72,7 +70,7 @@ def uptodate_status(
 def balance_string(tree_node: TreeNode) -> str:
     """Balance directive for the given account for today."""
     account = tree_node.name
-    today = str(datetime.date.today())
+    today = str(local_today())
     res = ""
     for currency, number in units(tree_node.balance).items():
         res += f"{today} balance {account:<28} {number:>15} {currency}\n"
@@ -111,7 +109,7 @@ class AccountData:
     last_entry: LastEntry | None = None
 
 
-class AccountDict(FavaModule, Dict[str, AccountData]):
+class AccountDict(FavaModule, dict[str, AccountData]):
     """Account info dictionary."""
 
     EMPTY = AccountData()
@@ -129,7 +127,7 @@ class AccountDict(FavaModule, Dict[str, AccountData]):
             self[key] = AccountData()
         return self[key]
 
-    def load_file(self) -> None:
+    def load_file(self) -> None:  # noqa: D102
         self.clear()
         entries_by_account = group_entries_by_account(self.ledger.all_entries)
         tree = Tree(self.ledger.all_entries)

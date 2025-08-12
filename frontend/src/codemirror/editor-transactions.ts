@@ -5,6 +5,7 @@
 import type { Diagnostic } from "@codemirror/lint";
 import { setDiagnostics } from "@codemirror/lint";
 import type { EditorState, TransactionSpec } from "@codemirror/state";
+import { EditorView } from "@codemirror/view";
 
 import type { BeancountError } from "../api/validators";
 
@@ -27,10 +28,13 @@ export function scrollToLine(
   state: EditorState,
   line: number,
 ): TransactionSpec {
+  if (line < 1 || line > state.doc.lines) {
+    return {};
+  }
   const linePos = state.doc.line(line);
   return {
-    selection: { ...linePos, anchor: linePos.from },
-    scrollIntoView: true,
+    effects: [EditorView.scrollIntoView(linePos.from, { y: "center" })],
+    selection: { anchor: linePos.from },
   };
 }
 
@@ -41,10 +45,11 @@ export function setErrors(
   state: EditorState,
   errors: BeancountError[],
 ): TransactionSpec {
+  const { doc } = state;
   const diagnostics = errors.map(({ source, message }): Diagnostic => {
     // Show errors without a line number on first line and ensure it is within the document.
-    const lineno = Math.min(Math.max(source?.lineno ?? 1, 1), state.doc.lines);
-    const line = state.doc.line(lineno);
+    const lineno = Math.min(Math.max(source?.lineno ?? 1, 1), doc.lines);
+    const line = doc.line(lineno);
     return {
       from: line.from,
       to: line.to,

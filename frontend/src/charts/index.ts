@@ -4,18 +4,18 @@
  * The charts heavily use d3 libraries.
  */
 
-import type { Result } from "../lib/result";
+import { collect, err, type Result } from "../lib/result";
+import type { ValidationError } from "../lib/validation";
 import { array, object, string, unknown } from "../lib/validation";
-
-import { bar } from "./bar";
 import type { BarChart } from "./bar";
+import { bar } from "./bar";
 import type { ChartContext } from "./context";
-import { hierarchy } from "./hierarchy";
 import type { HierarchyChart } from "./hierarchy";
-import { balances } from "./line";
+import { hierarchy } from "./hierarchy";
 import type { LineChart } from "./line";
-import { scatterplot } from "./scatterplot";
+import { balances } from "./line";
 import type { ScatterPlot } from "./scatterplot";
+import { scatterplot } from "./scatterplot";
 
 const parsers: Record<
   string,
@@ -23,7 +23,7 @@ const parsers: Record<
     label: string,
     json: unknown,
     $chartContext: ChartContext,
-  ) => Result<FavaChart, string>
+  ) => Result<FavaChart, ValidationError>
 > = {
   balances,
   bar,
@@ -37,21 +37,32 @@ const chart_data_validator = array(
   object({ label: string, type: string, data: unknown }),
 );
 
+class ChartValidationError extends Error {
+  constructor(type: string, cause: ValidationError) {
+    super(`Parsing of data for ${type} chart failed.`, { cause });
+  }
+}
+
+class UnknownChartTypeError extends Error {
+  constructor(type: string) {
+    super(`Unknown chart type ${type}`);
+  }
+}
+
 export function parseChartData(
   data: unknown,
   $chartContext: ChartContext,
-): Result<FavaChart[], string> {
-  return chart_data_validator(data).map((chartData) => {
-    const result: FavaChart[] = [];
-    chartData.forEach((chart) => {
-      const parser = parsers[chart.type];
-      if (parser) {
-        const r = parser(chart.label, chart.data, $chartContext);
-        if (r.is_ok) {
-          result.push(r.value);
-        }
-      }
-    });
-    return result;
-  });
+): Result<FavaChart[], ChartValidationError | UnknownChartTypeError> {
+  return chart_data_validator(data).and_then((chartData) =>
+    collect(
+      chartData.map(({ type, label, data }) => {
+        const parser = parsers[type];
+        return parser
+          ? parser(label, data, $chartContext).map_err(
+              (error) => new ChartValidationError(type, error),
+            )
+          : err(new UnknownChartTypeError(type));
+      }),
+    ),
+  );
 }

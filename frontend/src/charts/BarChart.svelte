@@ -2,12 +2,10 @@
   import { extent } from "d3-array";
   import { axisBottom, axisLeft } from "d3-axis";
   import { scaleBand, scaleLinear, scaleOrdinal } from "d3-scale";
-  import type { Writable } from "svelte/store";
 
   import { urlForAccount } from "../helpers";
   import { barChartMode, chartToggledCurrencies } from "../stores/chart";
-  import { ctx, short } from "../stores/format";
-
+  import { ctx, currentTimeFilterDateFormat, short } from "../stores/format";
   import Axis from "./Axis.svelte";
   import type { BarChart } from "./bar";
   import {
@@ -20,72 +18,84 @@
   } from "./helpers";
   import { followingTooltip } from "./tooltip";
 
-  export let chart: BarChart;
-  export let width: number;
-  export let legend: Writable<[string, string | null][]>;
+  interface Props {
+    chart: BarChart;
+    width: number;
+  }
+
+  let { chart, width }: Props = $props();
 
   const today = new Date();
   const maxColumnWidth = 100;
   const margin = { top: 10, right: 10, bottom: 30, left: 40 };
   const height = 250;
 
-  $: accounts = chart.accounts;
+  let accounts = $derived(chart.accounts);
 
-  $: filtered = chart.filter($chartToggledCurrencies);
-  $: currencies = filtered.currencies;
-  $: bar_groups = filtered.bar_groups;
-  $: stacks = filtered.stacks;
+  let filtered = $derived(chart.filter($chartToggledCurrencies));
+  let currencies = $derived(filtered.currencies);
+  let bar_groups = $derived(filtered.bar_groups);
+  let stacks = $derived(filtered.stacks);
 
-  $: innerHeight = height - margin.top - margin.bottom;
-  $: maxWidth = bar_groups.length * maxColumnWidth;
-  $: offset = margin.left + Math.max(0, width - maxWidth) / 2;
-  $: innerWidth = Math.min(width - margin.left - margin.right, maxWidth);
+  let innerHeight = $derived(height - margin.top - margin.bottom);
+  let maxWidth = $derived(bar_groups.length * maxColumnWidth);
+  let offset = $derived(margin.left + Math.max(0, width - maxWidth) / 2);
+  let innerWidth = $derived(
+    Math.min(width - margin.left - margin.right, maxWidth),
+  );
 
   /** Whether to display stacked bars. */
-  $: showStackedBars = $barChartMode === "stacked" && chart.hasStackedData;
+  let showStackedBars = $derived(
+    $barChartMode === "stacked" && chart.hasStackedData,
+  );
   /** The currently hovered account. */
-  let highlighted: string | null = null;
+  let highlighted: string | null = $state(null);
 
   // Scales
-  $: x0 = scaleBand([0, innerWidth])
-    .domain(bar_groups.map((d) => d.label))
-    .padding(0.1);
-  $: x1 = scaleBand([0, x0.bandwidth()]).domain(currencies);
+  let x0 = $derived(
+    scaleBand([0, innerWidth])
+      .domain(bar_groups.map((d) => d.label))
+      .padding(0.1),
+  );
+  let x1 = $derived(scaleBand([0, x0.bandwidth()]).domain(currencies));
 
-  $: yExtent = showStackedBars
-    ? extent(stacks.flatMap(([, s]) => s.flat(2)))
-    : extent(bar_groups.map((d) => d.values).flat(), (d) => d.value);
-  $: y = scaleLinear([innerHeight, 0]).domain(padExtent(includeZero(yExtent)));
+  let yExtent = $derived(
+    showStackedBars
+      ? extent(stacks.flatMap(([, s]) => s.flat(2)))
+      : extent(
+          bar_groups.flatMap((d) => d.values),
+          (d) => d.value,
+        ),
+  );
+  let y = $derived(
+    scaleLinear([innerHeight, 0]).domain(padExtent(includeZero(yExtent))),
+  );
 
-  $: colorScale = scaleOrdinal(hclColorRange(accounts.length)).domain(accounts);
-
-  $: legend.set(
-    chart.currencies.map((c) => [
-      c,
-      showStackedBars ? null : $currenciesScale(c),
-    ])
+  let colorScale = $derived(
+    scaleOrdinal(hclColorRange(accounts.length)).domain(accounts),
   );
 
   // Axes
-  $: xAxis = axisBottom(x0)
-    .tickSizeOuter(0)
-    .tickValues(filterTicks(x0.domain(), innerWidth / 70));
-  $: yAxis = axisLeft(y)
-    .tickPadding(6)
-    .tickSize(-innerWidth)
-    .tickFormat($short);
+  let xAxis = $derived(
+    axisBottom(x0)
+      .tickSizeOuter(0)
+      .tickValues(filterTicks(x0.domain(), innerWidth / 70)),
+  );
+  let yAxis = $derived(
+    axisLeft(y).tickPadding(6).tickSize(-innerWidth).tickFormat($short),
+  );
 </script>
 
-<svg {width} {height}>
-  <g transform={`translate(${offset},${margin.top})`}>
+<svg viewBox={`0 0 ${width.toString()} ${height.toString()}`}>
+  <g transform={`translate(${offset.toString()},${margin.top.toString()})`}>
     <Axis x axis={xAxis} {innerHeight} />
     <Axis y axis={yAxis} lineAtZero={y(0)} />
-    {#each bar_groups as group}
+    {#each bar_groups as group (group.date)}
       <g
         class="group"
         class:desaturate={group.date > today}
         use:followingTooltip={() => chart.tooltipText($ctx, group)}
-        transform={`translate(${x0(group.label) ?? 0},0)`}
+        transform={`translate(${(x0(group.label) ?? 0).toString()},0)`}
       >
         <rect
           class="group-box"
@@ -93,16 +103,19 @@
           width={x0.step()}
           height={innerHeight}
         />
-        <a href={urlForTimeFilter(group.date)}>
+        <a
+          href={urlForTimeFilter(group.date)}
+          aria-label={$currentTimeFilterDateFormat(group.date)}
+        >
           <rect
             class="axis-group-box"
-            transform={`translate(0,${innerHeight})`}
+            transform={`translate(0,${innerHeight.toString()})`}
             width={x0.bandwidth()}
             height={margin.bottom}
           />
         </a>
         {#if !showStackedBars}
-          {#each group.values as { currency, value, budget }}
+          {#each group.values as { currency, value, budget } (currency)}
             <rect
               fill={$currenciesScale(currency)}
               width={x1.bandwidth()}
@@ -122,28 +135,28 @@
       </g>
     {/each}
     {#if showStackedBars}
-      {#each stacks as [currency, account_stacks]}
-        {#each account_stacks as stack}
+      {#each stacks as [currency, account_stacks] (currency)}
+        {#each account_stacks as stack (stack.key)}
           {@const account = stack.key}
           <a href={$urlForAccount(account)}>
             <g
               class="category"
-              class:faded={highlighted && account !== highlighted}
-              on:mouseover={() => {
+              class:faded={highlighted != null && account !== highlighted}
+              onmouseover={() => {
                 highlighted = account;
               }}
-              on:focus={() => {
+              onfocus={() => {
                 highlighted = account;
               }}
-              on:mouseout={() => {
+              onmouseout={() => {
                 highlighted = null;
               }}
-              on:blur={() => {
+              onblur={() => {
                 highlighted = null;
               }}
               role="img"
             >
-              {#each stack as bar}
+              {#each stack as bar (bar.data.date)}
                 <rect
                   class:desaturate={bar.data.date > today}
                   width={x1.bandwidth()}
@@ -152,11 +165,16 @@
                   height={Math.abs(y(bar[1]) - y(bar[0]))}
                   fill={colorScale(account)}
                   use:followingTooltip={() =>
-                    chart.tooltipTextAccount($ctx, bar.data, account)}
+                    chart.tooltipTextAccount(
+                      $ctx,
+                      bar.data,
+                      account,
+                      $chartToggledCurrencies,
+                    )}
                 />
               {/each}
             </g>
-          </a>v
+          </a>
         {/each}
       {/each}
     {/if}
