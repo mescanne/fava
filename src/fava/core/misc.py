@@ -43,10 +43,7 @@ class FavaMisc(FavaModule):
 
     def load_file(self) -> None:  # noqa: D102
         custom_entries = self.ledger.all_entries_by_type.Custom
-        links = sidebar_links(custom_entries)
-        if self.ledger.fava_options.show_cash_flow:
-            links.append(("Cash Flow", "/cash_flow/"))
-        self.sidebar_links = links
+        self.sidebar_links = sidebar_links(custom_entries)
 
         self.upcoming_events = upcoming_events(
             self.ledger.all_entries_by_type.Event,

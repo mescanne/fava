@@ -9,7 +9,7 @@
     ],
     "meta": {
       "filename": "TEST_DATA_DIR/example.beancount",
-      "lineno": 78
+      "lineno": 80
     },
     "t": "Document",
     "tags": [
@@ -24,7 +24,7 @@
     "links": [],
     "meta": {
       "filename": "TEST_DATA_DIR/example.beancount",
-      "lineno": 79
+      "lineno": 81
     },
     "t": "Document",
     "tags": [

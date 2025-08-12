@@ -15,8 +15,6 @@ import {
   income_statement,
   trial_balance,
 } from "./tree_reports";
-import { show_cash_flow } from "../stores/fava_options";
-import { get } from "svelte/store";
 
 /**
  * This is a list of routes to render in the frontend. For those that we render
@@ -29,6 +27,7 @@ import { get } from "svelte/store";
 export const frontend_routes: FrontendRoute[] = [
   account_report,
   balance_sheet,
+  cash_flow,
   commodities,
   documents,
   editor,
@@ -41,7 +40,3 @@ export const frontend_routes: FrontendRoute[] = [
   query,
   trial_balance,
 ];
-
-if (get(show_cash_flow)) {
-  frontend_routes.push(cash_flow);
-}
