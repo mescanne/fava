@@ -89,6 +89,7 @@ CLIENT_SIDE_REPORTS = [
     "holdings",
     "import",
     "income_statement",
+    "cash_flow",
     "options",
     "query",
     "trial_balance",
