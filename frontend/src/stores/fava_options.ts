@@ -39,9 +39,9 @@ export const show_closed_accounts = derived(
   fava_options,
   ($fava_options) => $fava_options.show_closed_accounts,
 );
-export const show_cash_flow = derived(
+export const show_cashflow = derived(
   fava_options,
-  ($fava_options) => $fava_options.show_cash_flow,
+  ($fava_options) => $fava_options.show_cashflow,
 );
 export const uptodate_indicator_grey_lookback_days = derived(
   fava_options,

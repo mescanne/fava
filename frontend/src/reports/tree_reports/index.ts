@@ -28,11 +28,11 @@ export const balance_sheet = new Route(
   () => _("Balance Sheet"),
 );
 
-export const cash_flow = new Route(
-  "cash_flow",
+export const cashflow = new Route(
+  "cashflow",
   CashFlow,
-  async (url) => get("cash_flow", getURLFilters(url)),
-  () => _("Cash Flow"),
+  async (url) => get("cashflow", getURLFilters(url)),
+  () => _("Cashflow"),
 );
 
 export const trial_balance = new Route(

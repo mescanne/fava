@@ -11,7 +11,7 @@ import { query } from "./query";
 import type { FrontendRoute } from "./route";
 import {
   balance_sheet,
-  cash_flow,
+  cashflow,
   income_statement,
   trial_balance,
 } from "./tree_reports";
@@ -27,7 +27,7 @@ import {
 export const frontend_routes: FrontendRoute[] = [
   account_report,
   balance_sheet,
-  cash_flow,
+  cashflow,
   commodities,
   documents,
   editor,

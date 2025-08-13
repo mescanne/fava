@@ -52,7 +52,7 @@
     "locale": "None",
     "show-accounts-with-zero-balance": "False",
     "show-accounts-with-zero-transactions": "True",
-    "show-cash-flow": "False",
+    "show-cashflow": "False",
     "show-closed-accounts": "False",
     "sidebar-show-queries": "5",
     "unrealized": "'Unrealized'",

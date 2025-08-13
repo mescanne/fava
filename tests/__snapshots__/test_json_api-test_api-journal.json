@@ -732,7 +732,7 @@
     "t": "Custom",
     "type": "fava-option",
     "values": [
-      "show-cash-flow",
+      "show-cashflow",
       "true"
     ]
   }

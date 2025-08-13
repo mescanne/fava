@@ -3,7 +3,7 @@
   import { _ } from "../i18n";
   import { keyboardShortcut } from "../keyboard-shortcuts";
   import { errors, extensions, ledgerData } from "../stores";
-  import { show_cash_flow } from "../stores/fava_options";
+  import { show_cashflow } from "../stores/fava_options";
   import AccountSelector from "./AccountSelector.svelte";
   import Link from "./SidebarLink.svelte";
 
@@ -27,8 +27,8 @@
 <ul class="navigation">
   <Link report="income_statement" name={_("Income Statement")} key="g i" />
   <Link report="balance_sheet" name={_("Balance Sheet")} key="g b" />
-  {#if $show_cash_flow}
-    <Link report="cash_flow" name={_("Cash Flow")} />
+  {#if $show_cashflow}
+    <Link report="cashflow" name={_("Cashflow")} />
   {/if}
   <Link report="trial_balance" name={_("Trial Balance")} key="g t" />
   <Link report="journal" name={_("Journal")} key="g j" />

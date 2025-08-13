@@ -661,7 +661,7 @@ def get_balance_sheet() -> TreeReport:
 
 
 @api_endpoint
-def get_cash_flow() -> TreeReport:
+def get_cashflow() -> TreeReport:
     """Get the data for the cash flow statement."""
     g.ledger.changed()
     options = g.ledger.options
@@ -692,10 +692,6 @@ def get_cash_flow() -> TreeReport:
             options["name_liabilities"],
             label=f"{gettext('Liabilities')} ({g.interval.label})",
         ),
-        ChartApi.hierarchy(options["name_assets"]),
-        ChartApi.hierarchy(options["name_liabilities"]),
-        ChartApi.hierarchy(options["name_income"]),
-        ChartApi.hierarchy(options["name_expenses"]),
     ]
     trees = [
         root_tree.get(options["name_assets"]),
@@ -706,44 +702,6 @@ def get_cash_flow() -> TreeReport:
         charts,
         trees=[tree.serialise_with_context() for tree in trees],
     )
-
-    # g.ledger.changed()
-    # options = g.ledger.options
-    # invert = g.ledger.fava_options.invert_income_liabilities_equity
-
-    # charts = [
-    #     ChartApi.interval_totals(
-    #         g.interval,
-    #         (options["name_income"], options["name_expenses"]),
-    #         label=gettext("Net Profit"),
-    #         invert=invert,
-    #     ),
-    #     ChartApi.interval_totals(
-    #         g.interval,
-    #         options["name_income"],
-    #         label=f"{gettext('Income')} ({g.interval.label})",
-    #         invert=invert,
-    #     ),
-    #     ChartApi.interval_totals(
-    #         g.interval,
-    #         options["name_expenses"],
-    #         label=f"{gettext('Expenses')} ({g.interval.label})",
-    #     ),
-    #     ChartApi.hierarchy(options["name_income"]),
-    #     ChartApi.hierarchy(options["name_expenses"]),
-    # ]
-    # root_tree = g.filtered.root_tree
-    # trees = [
-    #     root_tree.get(options["name_income"]),
-    #     root_tree.net_profit(options, gettext("Net Profit")),
-    #     root_tree.get(options["name_expenses"]),
-    # ]
-
-    # return TreeReport(
-    #     g.filtered.date_range,
-    #     charts,
-    #     trees=[tree.serialise_with_context() for tree in trees],
-    # )
 
 
 @api_endpoint
