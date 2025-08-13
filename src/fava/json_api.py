@@ -28,6 +28,7 @@ from flask_babel import gettext
 
 from fava.beans.abc import Document
 from fava.beans.abc import Event
+from fava.beans.helpers import slice_entry_dates
 from fava.context import g
 from fava.core import EntryNotFoundForHashError
 from fava.core.documents import filepath_in_document_folder
@@ -35,9 +36,8 @@ from fava.core.documents import is_document_or_import_file
 from fava.core.filters import FilterError
 from fava.core.ingest import filepath_in_primary_imports_folder
 from fava.core.misc import align
-from fava.helpers import FavaAPIError
-from fava.beans.helpers import slice_entry_dates
 from fava.core.tree import Tree
+from fava.helpers import FavaAPIError
 from fava.internal_api import ChartApi
 from fava.internal_api import get_errors
 from fava.internal_api import get_ledger_data
