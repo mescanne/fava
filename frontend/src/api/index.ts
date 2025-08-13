@@ -59,6 +59,7 @@ export async function put<T extends keyof PutAPIInputs>(
 
 interface GetAPIParams {
   balance_sheet: FiltersConversionInterval;
+  cashflow: FiltersConversionInterval;
   account_report: FiltersConversionInterval & { a: string; r: string };
   changed: undefined;
   commodities: Filters;
