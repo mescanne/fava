@@ -36,6 +36,8 @@ from fava.core.filters import FilterError
 from fava.core.ingest import filepath_in_primary_imports_folder
 from fava.core.misc import align
 from fava.helpers import FavaAPIError
+from fava.beans.helpers import slice_entry_dates
+from fava.core.tree import Tree
 from fava.internal_api import ChartApi
 from fava.internal_api import get_errors
 from fava.internal_api import get_ledger_data
@@ -663,7 +665,15 @@ def get_cash_flow() -> TreeReport:
     """Get the data for the cash flow statement."""
     g.ledger.changed()
     options = g.ledger.options
-    root_tree = g.filtered.root_tree
+    if g.filtered.date_range:
+        entries = slice_entry_dates(
+            g.filtered.entries,
+            g.filtered.date_range.begin,
+            g.filtered.date_range.end,
+        )
+        root_tree = Tree(entries)
+    else:
+        root_tree = g.filtered.root_tree
     charts = [
         ChartApi.interval_totals(
             g.interval,
@@ -684,8 +694,8 @@ def get_cash_flow() -> TreeReport:
         ),
         ChartApi.hierarchy(options["name_assets"]),
         ChartApi.hierarchy(options["name_liabilities"]),
-        # ChartApi.hierarchy(options["name_income"]),
-        # ChartApi.hierarchy(options["name_expenses"]),
+        ChartApi.hierarchy(options["name_income"]),
+        ChartApi.hierarchy(options["name_expenses"]),
     ]
     trees = [
         root_tree.get(options["name_assets"]),

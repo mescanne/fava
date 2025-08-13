@@ -188,9 +188,17 @@ def parse_option_custom_entry(entry: Custom, options: FavaOptions) -> None:
         raise UnknownOptionError(key)
 
     value = entry.values[1].value if len(entry.values) > 1 else ""
+    filename, lineno = get_position(entry)
+
+    if key in BOOL_OPTS:
+        if isinstance(value, bool):
+            setattr(options, key, value)
+        elif isinstance(value, str):
+            setattr(options, key, value.lower() == "true")
+        return
+
     if not isinstance(value, str):
         raise NotAStringOptionError(key)
-    filename, lineno = get_position(entry)
 
     if key == "collapse_pattern":
         options.set_collapse_pattern(value)
@@ -206,8 +214,6 @@ def parse_option_custom_entry(entry: Custom, options: FavaOptions) -> None:
         options.set_locale(value)
     elif key in STR_OPTS:
         setattr(options, key, value)
-    elif key in BOOL_OPTS:
-        setattr(options, key, value.lower() == "true")
     elif key in INT_OPTS:
         setattr(options, key, int(value))
     else:  # key in TUPLE_OPTS
