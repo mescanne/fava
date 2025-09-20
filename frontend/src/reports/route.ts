@@ -1,18 +1,106 @@
 import { type Component, mount, unmount } from "svelte";
 
-import { log_error } from "../log";
+import { _ } from "../i18n";
+import { getScriptTagValue } from "../lib/dom";
+import { fetch, handleText } from "../lib/fetch";
+import { string } from "../lib/validation";
+import { read_mtime } from "../stores/mtime";
 import ReportLoadError from "./ReportLoadError.svelte";
 import { updateable_props } from "./route.svelte";
 
-export interface FrontendRoute {
-  readonly report: string;
-  readonly title: string;
-  destroy(): void;
+export interface BaseRoute {
+  /** Load data and render the component for this route to the given target. */
   render(
     target: HTMLElement,
     url: URL,
-    previous?: FrontendRoute,
-  ): Promise<void>;
+    previous?: RenderedReport,
+    before_render?: () => void,
+  ): RenderedReport | Promise<RenderedReport>;
+}
+
+export class RenderedReport {
+  /**
+   * A succesfully rendered report.
+   * @param route - The route that is rendered.
+   * @param url - The URL that is rendered.
+   * @param title - The title for this report.
+   */
+  constructor(
+    readonly route: BaseRoute,
+    readonly url: URL,
+    readonly title: string,
+    readonly destroy: () => void,
+  ) {}
+}
+
+class BackendRenderedReport extends RenderedReport {
+  constructor(route: BaseRoute, url: URL, target: HTMLElement) {
+    const title = getScriptTagValue("#page-title", string).unwrap_or(
+      "ERROR: reading #page-title failed.",
+    );
+    super(route, url, title, () => {
+      target.innerHTML = "";
+    });
+  }
+}
+
+/**
+ * Load HTML for a report that is rendered in the backend.
+ */
+class BackendRoute implements BaseRoute {
+  async render(
+    target: HTMLElement,
+    url: URL,
+    previous?: RenderedReport,
+    before_render?: () => void,
+  ): Promise<RenderedReport> {
+    if (previous == null) {
+      // Nothing to do on the first render.
+      return new BackendRenderedReport(this, url, target);
+    }
+    const get_url = new URL(url);
+    get_url.searchParams.set("partial", "true");
+    const content = await fetch(get_url).then(handleText);
+    if (previous.route !== this) {
+      previous.destroy();
+    }
+    before_render?.();
+    target.innerHTML = content;
+    read_mtime();
+
+    return new BackendRenderedReport(this, url, target);
+  }
+}
+
+/**
+ * Render an error message.
+ */
+export class ErrorRoute implements BaseRoute {
+  constructor(private readonly error: Error) {}
+
+  render(
+    target: HTMLElement,
+    url: URL,
+    previous?: RenderedReport,
+    before_render?: () => void,
+  ): RenderedReport {
+    previous?.destroy();
+    before_render?.();
+    const instance = mount(ReportLoadError, {
+      target,
+      props: { title: url.pathname, error: this.error },
+    });
+    return new RenderedReport(this, url, _("Error"), () => {
+      void unmount(instance);
+    });
+  }
+}
+
+export const backend_route = new BackendRoute();
+
+export interface FrontendRoute extends BaseRoute {
+  /** URL slug of this report. */
+  readonly report: string;
 }
 
 /** This class pairs the components and their load functions to use them in a type-safe way. */
@@ -23,15 +111,10 @@ export class Route<T extends Record<string, any>> implements FrontendRoute {
   /** The currently rendered instance - if loading failed, we render an error component. */
   private instance?:
     | {
-        error: false;
         component: Record<string, unknown>;
         update_props: (v: T) => void;
       }
-    | { error: true; component: Record<string, unknown> }
     | undefined;
-
-  /** The currently rendered URL. */
-  url?: URL;
 
   /**
    * Create a new frontend-rendered route.
@@ -44,62 +127,37 @@ export class Route<T extends Record<string, any>> implements FrontendRoute {
     readonly report: string,
     private readonly Component: Component<T>,
     private readonly load: (url: URL) => T | Promise<T>,
-    private readonly get_title: (route: Route<T>) => string,
+    readonly get_title: (url: URL) => string,
   ) {}
 
-  /** The title of this report. */
-  get title(): string {
-    return this.get_title(this);
-  }
-
-  /** Destroy any components that might be rendered by this route. */
-  destroy(): void {
-    if (this.instance) {
-      void unmount(this.instance.component);
-    }
-    this.instance = undefined;
-  }
-
-  /** Load data and render the component for this route to the given target. */
   async render(
     target: HTMLElement,
     url: URL,
-    previous?: FrontendRoute,
-  ): Promise<void> {
-    if (previous !== this) {
+    previous?: RenderedReport,
+    before_render?: () => void,
+  ): Promise<RenderedReport> {
+    const raw_props = await this.load(url);
+    if (previous?.route !== this) {
       previous?.destroy();
     }
-    try {
-      const raw_props = await this.load(url);
+    before_render?.();
+    if (previous?.route === this && this.instance != null) {
       // Check if the component is unchanged and only update the data in this case.
-      if (previous === this && this.instance?.error === false) {
-        this.instance.update_props(raw_props);
-      } else {
-        this.destroy();
-        target.innerHTML = "";
-        const [props, update_props] = updateable_props(raw_props);
-        this.instance = {
-          error: false,
-          component: mount(this.Component, { target, props }),
-          update_props,
-        };
-      }
-    } catch (error: unknown) {
-      log_error(error);
-      if (error instanceof Error) {
-        this.destroy();
-        target.innerHTML = "";
-        this.instance = {
-          error: true,
-          component: mount(ReportLoadError, {
-            target,
-            props: { title: this.title, error },
-          }),
-        };
-      }
-    } finally {
-      this.url = url;
+      this.instance.update_props(raw_props);
+    } else {
+      previous?.destroy();
+      const [props, update_props] = updateable_props(raw_props);
+      this.instance = {
+        component: mount(this.Component, { target, props }),
+        update_props,
+      };
     }
+    return new RenderedReport(this, url, this.get_title(url), () => {
+      if (this.instance) {
+        void unmount(this.instance.component);
+      }
+      this.instance = undefined;
+    });
   }
 }
 
@@ -112,7 +170,7 @@ export class DatalessRoute extends Route<NoProps> {
   constructor(
     report: string,
     Component: Component<NoProps>,
-    get_title: (route: Route<NoProps>) => string,
+    get_title: (url: URL) => string,
   ) {
     super(report, Component, noload, get_title);
   }

@@ -65,7 +65,7 @@
   }: Props = $props();
 
   const uid = $props.id();
-  const autocomple_id = `combobox-autocomplete-${uid.toString()}`;
+  const autocomple_id = `combobox-autocomplete-${uid}`;
 
   let hidden = $state.raw(true);
   let index = $state.raw(-1);
@@ -157,7 +157,7 @@
     aria-controls={autocomple_id}
     bind:value
     bind:this={input}
-    use:keyboardShortcut={key}
+    {@attach keyboardShortcut(key)}
     onblur={(event) => {
       hidden = true;
       onBlur?.(event.currentTarget);

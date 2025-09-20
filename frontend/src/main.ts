@@ -28,7 +28,6 @@ import { get } from "./api";
 import { ledgerDataValidator } from "./api/validators";
 import { CopyableText } from "./clipboard";
 import { BeancountTextarea } from "./codemirror/setup";
-import { handleExtensionPageLoad } from "./extensions";
 import { _ } from "./i18n";
 import { FavaJournal } from "./journal";
 import { initGlobalKeyboardShortcuts } from "./keyboard-shortcuts";
@@ -36,9 +35,9 @@ import { getScriptTagValue } from "./lib/dom";
 import { log_error } from "./log";
 import { notify, notify_err } from "./notifications";
 import { frontend_routes } from "./reports/routes";
-import router, { setStoreValuesFromURL, syncStoreValuesToURL } from "./router";
+import { router } from "./router";
 import { initSidebar } from "./sidebar";
-import { has_changes, updatePageTitle } from "./sidebar/page-title";
+import { has_changes } from "./sidebar/page-title";
 import { SortableTable } from "./sort/sortable-table";
 import { errors, ledgerData } from "./stores";
 import { init_color_scheme } from "./stores/color_scheme";
@@ -63,13 +62,6 @@ function defineCustomElements() {
   customElements.define("tree-table", TreeTableCustomElement);
 }
 
-router.on("page-loaded", () => {
-  read_mtime();
-  updatePageTitle();
-  has_changes.set(false);
-  handleExtensionPageLoad();
-});
-
 /**
  * Update the ledger data and errors; Reload if automatic reloading is configured.
  */
@@ -81,7 +73,7 @@ function onChanges() {
     .catch((e: unknown) => {
       notify_err(e, (err) => `Error fetching ledger data: ${err.message}`);
     });
-  if (store_get(auto_reload) && !router.hasInteruptHandler) {
+  if (store_get(auto_reload) && !router.has_interrupt_handler) {
     router.reload();
   } else {
     get("errors").then((v) => {
@@ -125,8 +117,6 @@ function init(): void {
   });
 
   router.init(frontend_routes);
-  setStoreValuesFromURL();
-  syncStoreValuesToURL();
   initSidebar();
   initGlobalKeyboardShortcuts();
   defineCustomElements();
@@ -135,8 +125,6 @@ function init(): void {
   ledgerData.subscribe((val) => {
     errors.set(val.errors);
   });
-
-  router.trigger("page-loaded");
 
   init_color_scheme();
 }

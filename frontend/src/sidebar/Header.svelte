@@ -1,6 +1,6 @@
 <script lang="ts">
   import { keyboardShortcut } from "../keyboard-shortcuts";
-  import router from "../router";
+  import { router } from "../router";
   import { ledgerData } from "../stores";
   import { ledger_title } from "../stores/options";
   import FilterForm from "./FilterForm.svelte";
@@ -32,8 +32,8 @@
     type="button"
     hidden={!$has_changes}
     class="reload-page"
-    use:keyboardShortcut={"r"}
-    onclick={router.reload.bind(router)}
+    {@attach keyboardShortcut("r")}
+    onclick={router.reload}
   >
     &#8635;
   </button>

@@ -1,7 +1,13 @@
+import { range } from "d3-array";
 import { mount, unmount } from "svelte";
+import { get as store_get } from "svelte/store";
 
 import { delegate } from "../lib/events";
-import { sortableJournal } from "../sort";
+import { fetch, handleText } from "../lib/fetch";
+import { log_error } from "../log";
+import { notify_err } from "../notifications";
+import { router } from "../router";
+import { type SortableJournal, sortableJournal } from "../sort";
 import { fql_filter } from "../stores/filters";
 import { journalShow } from "../stores/journal";
 import JournalFilters from "./JournalFilters.svelte";
@@ -18,8 +24,10 @@ export function escape_for_regex(value: string): string {
  * as a regex must be escaped.
  */
 function addFilter(value: string): void {
-  fql_filter.update((fql_filter_val) =>
-    fql_filter_val ? `${fql_filter_val} ${value}` : value,
+  const $fql_filter = store_get(fql_filter);
+  router.set_search_param(
+    "filter",
+    $fql_filter ? `${$fql_filter} ${value}` : value,
   );
 }
 
@@ -76,10 +84,17 @@ export class FavaJournal extends HTMLElement {
   /** Unsubscribe store listener. */
   unsubscribe?: () => void;
 
+  sortableJournal?: SortableJournal;
+
   connectedCallback(): void {
     const ol = this.querySelector("ol");
     if (!ol) {
       throw new Error("fava-journal is missing its <ol>");
+    }
+
+    const total_pages = this.getAttribute("total-pages");
+    if (total_pages != null) {
+      void this.fetchAllPages(ol, parseInt(total_pages, 10));
     }
 
     this.unsubscribe = journalShow.subscribe((show) => {
@@ -91,12 +106,69 @@ export class FavaJournal extends HTMLElement {
       void unmount(component);
     };
 
-    sortableJournal(ol);
+    this.sortableJournal = sortableJournal(ol);
     delegate(this, "click", "li", handleClick);
   }
 
   disconnectedCallback(): void {
     this.unsubscribe?.();
     this.unmount?.();
+  }
+
+  private async fetchAllPages(
+    ol: HTMLOListElement,
+    total: number,
+  ): Promise<void> {
+    const { current } = router;
+    const parser = new DOMParser();
+    const pages = range(2, total + 1);
+    const pages_and_urls = pages.map((page): [number, URL] => {
+      const page_url = new URL(current);
+      page_url.searchParams.set("partial", "true");
+      page_url.searchParams.set("page", page.toString());
+      return [page, page_url];
+    });
+    let errorShown = false;
+
+    const promises = pages_and_urls.map(async ([page, page_url]) => {
+      return fetch(page_url)
+        .then(handleText)
+        .then(
+          (html) => {
+            const doc = parser.parseFromString(html, "text/html");
+            return doc.querySelectorAll("ol.journal > li:not(.head)");
+          },
+          (error: unknown) => {
+            log_error(`Failed to fetch page ${page.toString()}`, error);
+            if (!errorShown) {
+              notify_err(new Error("Failed to fetch some journal pages"));
+              errorShown = true;
+            }
+            return [];
+          },
+        );
+    });
+
+    let sorting = false;
+    for (const promise of promises) {
+      ol.append(...(await promise));
+      if (sorting) {
+        continue;
+      }
+      sorting = true;
+      // Batch sorting to avoid repeatedly sorting in-between consecutive
+      // items appending.
+      setTimeout(() => {
+        sorting = false;
+        if (this.sortableJournal) {
+          const [column, order] = this.sortableJournal.getOrder();
+          // The data is already sorted by date desc, so no need to sort again
+          // if that's the current order.
+          if (column !== "date" || order !== "desc") {
+            this.sortableJournal.sort();
+          }
+        }
+      });
+    }
   }
 }
