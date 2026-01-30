@@ -13,6 +13,8 @@ from fava.util.date import local_today
 from fava.util.date import Month
 
 if TYPE_CHECKING:  # pragma: no cover
+    from collections.abc import Sequence
+
     from fava.beans.abc import Directive
     from fava.core import FavaLedger
 
@@ -71,7 +73,7 @@ def test_paths_to_watch(
         [Path(example_ledger.beancount_file_path)],
         [],
     )
-    monkeypatch.setitem(example_ledger.options, "documents", ["folder"])
+    monkeypatch.setitem(example_ledger.options, "documents", ["folder"])  # ty:ignore[invalid-argument-type]
     base = Path(example_ledger.beancount_file_path).parent / "folder"
     assert example_ledger.paths_to_watch() == (
         [Path(example_ledger.beancount_file_path)],
@@ -99,7 +101,7 @@ def test_account_metadata(example_ledger: FavaLedger) -> None:
 
 def test_group_entries(
     example_ledger: FavaLedger,
-    load_doc_entries: list[Directive],
+    load_doc_entries: Sequence[Directive],
 ) -> None:
     """
     2010-11-12 * "test"
@@ -142,8 +144,14 @@ def test_commodity_names(example_ledger: FavaLedger) -> None:
 
 
 def test_paginate_journal(small_example_ledger: FavaLedger) -> None:
+    empty = FilteredLedger(small_example_ledger, filter="never")
+    first_page = empty.paginate_journal(1)
+    assert first_page
+    assert not first_page.entries
+    assert first_page.total_pages == 1
+
     filtered = FilteredLedger(small_example_ledger)
-    total_entries = len(filtered.entries)
+    total_entries = len(filtered.entries_without_prices)
     assert total_entries > 4, "Need at least 4 entries for this test"
 
     per_page = 2
@@ -152,12 +160,15 @@ def test_paginate_journal(small_example_ledger: FavaLedger) -> None:
     all_indices = []
     all_entries = []
     for page in range(1, expected_total_pages + 1):
-        page_entries, total_pages = filtered.paginate_journal(page, per_page)
-        assert total_pages == expected_total_pages
-        assert page_entries
-        all_indices.extend([entry_tuple[0] for entry_tuple in page_entries])
+        journal_page = filtered.paginate_journal(page, per_page)
+        assert journal_page
+        assert journal_page.total_pages == expected_total_pages
+        assert journal_page.entries
+        all_indices.extend(
+            [entry_tuple[0] for entry_tuple in journal_page.entries]
+        )
         all_entries.extend(
-            [id(entry_tuple[1]) for entry_tuple in page_entries]
+            [id(entry_tuple[1]) for entry_tuple in journal_page.entries]
         )
 
     assert len(set(all_indices)) == total_entries

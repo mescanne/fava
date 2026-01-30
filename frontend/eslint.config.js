@@ -66,6 +66,12 @@ export default defineConfig(
     },
   },
   {
+    files: ["**/*.test.ts"],
+    rules: {
+      "@typescript-eslint/no-floating-promises": OFF,
+    },
+  },
+  {
     files: ["**/*.svelte", "**/*.svelte.ts"],
     languageOptions: {
       parser: svelteParser,
@@ -75,6 +81,7 @@ export default defineConfig(
       },
     },
     rules: {
+      "@typescript-eslint/no-useless-default-assignment": OFF,
       "svelte/button-has-type": ON,
     },
   },

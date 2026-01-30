@@ -27,12 +27,22 @@ jobs:
           - os: "windows-latest"
             make_target: "test-py"
             py: "3.13"
+          - os: "ubuntu-latest"
+            make_target: "test-py"
+            py: "3.14"
+          - os: "ubuntu-latest"
+            make_target: "test-py-typeguard"
+            py: "3.14"
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: ${{ matrix.py }}
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+        with:
+          enable-cache: false
       - run: touch src/fava/static/app.js
       - run: make ${{ matrix.make_target }}
   test-js:
@@ -40,42 +50,79 @@ jobs:
     strategy:
       matrix:
         os: ["ubuntu-latest", "macos-latest", "windows-latest"]
+        node: ["lts/*"]
+        include:
+          - os: "ubuntu-latest"
+            node: "current"
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          node-version: "lts/*"
-          cache: "npm"
-          cache-dependency-path: frontend/package-lock.json
-      - run: npm install --global npm@latest
+          persist-credentials: false
+      - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
       - run: cd frontend && npm ci
       - run: cd frontend && npm run build
       - run: cd frontend && npm test
+  deno-js:
+    runs-on: "ubuntu-latest"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: denoland/setup-deno@e95548e56dfa95d4e1a28d6f422fafe75c4c26fb # v2.0.3
+        with:
+          deno-version: "v2.6.x"
+      - run: cd frontend && deno install
+      - run: cd frontend && deno lint
+      - run: cd frontend && deno run build
   lint-js:
     runs-on: "ubuntu-latest"
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: "3.13"
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
         with:
           node-version: "lts/*"
-          cache: "npm"
-          cache-dependency-path: frontend/package-lock.json
-      - uses: astral-sh/setup-uv@v6
-      - run: npm install --global npm@latest
+          package-manager-cache: false
+      - uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+        with:
+          enable-cache: false
       - run: cd frontend && npm ci
       - run: uv run --no-dev --group pre-commit pre-commit run -a eslint
+      - run: uv run --no-dev --group pre-commit pre-commit run -a stylelint
       - run: cd frontend; npx tsc
       - run: cd frontend; npx svelte-check
-  lint-python:
+  lint-python-mypy:
     runs-on: "ubuntu-latest"
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: "3.13"
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+        with:
+          enable-cache: false
       - run: touch src/fava/static/app.js
       - run: make mypy
+  lint-python-ty:
+    runs-on: "ubuntu-latest"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+        with:
+          enable-cache: false
+      - run: touch src/fava/static/app.js
+      - run: make ty

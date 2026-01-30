@@ -5,18 +5,22 @@
  * load the content of the page and replace the <article> contents with them.
  */
 
-import type { Readable } from "svelte/store";
-import { writable } from "svelte/store";
+import type { Readable, Writable } from "svelte/store";
+import { derived, writable } from "svelte/store";
 
-import { handleExtensionPageLoad } from "./extensions";
-import { getUrlPath } from "./helpers";
-import { assert_is_error } from "./lib/errors";
-import { delegate } from "./lib/events";
-import { log_error } from "./log";
-import type { RenderedReport } from "./reports/route";
-import { backend_route, ErrorRoute, type FrontendRoute } from "./reports/route";
-import { has_changes, raw_page_title } from "./sidebar/page-title";
-import { current_url } from "./stores/url";
+import { handleExtensionPageLoad } from "./extensions.ts";
+import { getUrlPath } from "./helpers.ts";
+import { get_el } from "./lib/dom.ts";
+import { assert_is_error } from "./lib/errors.ts";
+import { log_error } from "./log.ts";
+import type { RenderedReport } from "./reports/route.ts";
+import {
+  backend_route,
+  ErrorRoute,
+  type FrontendRoute,
+} from "./reports/route.ts";
+import { has_changes, raw_page_title } from "./sidebar/page-title.ts";
+import { current_url } from "./stores/url.ts";
 
 /** Whether this is a left-button click without any modifier keys pressed. */
 const is_normal_click = (event: MouseEvent) =>
@@ -31,6 +35,9 @@ const is_external_link = (link: HTMLAnchorElement | SVGAElement) =>
   link.hasAttribute("data-remote") ||
   (link instanceof HTMLAnchorElement &&
     (link.host !== window.location.host || !link.protocol.startsWith("http")));
+
+/** The navigation API is still rather new so only optionally depend on it for now. */
+const navigation_api = "navigation" in window ? window.navigation : null;
 
 /**
  * The various query parameters used in Fava.
@@ -57,9 +64,48 @@ export function set_query_param(
   }
 }
 
-const is_loading_internal = writable(false);
+class LoadingState {
+  is_loading: Readable<boolean>;
+  #current: Writable<Set<symbol>>;
+
+  constructor() {
+    this.#current = writable(new Set());
+    this.is_loading = derived(this.#current, ($current) => $current.size > 0);
+  }
+
+  /**
+   * Run the given async function, showing a loading indicator for its duration.
+   */
+  async run<T>(func: () => T | Promise<T>): Promise<T> {
+    const promise = func();
+    return this.await(promise);
+  }
+
+  /**
+   * Await the given promise, showing a loading indicator for its duration.
+   */
+  async await<T>(promise: T | Promise<T>): Promise<T> {
+    const tracker = Symbol();
+    try {
+      this.#current.update((s) => {
+        const new_s = new Set(s);
+        new_s.add(tracker);
+        return new_s;
+      });
+      return await promise;
+    } finally {
+      this.#current.update((s) => {
+        const new_s = new Set(s);
+        new_s.delete(tracker);
+        return new_s;
+      });
+    }
+  }
+}
+
+export const loading_state = new LoadingState();
 /** Whether the logo should be spinning to indicate that something is loading. */
-export const is_loading: Readable<boolean> = is_loading_internal;
+export const is_loading = loading_state.is_loading;
 
 export class Router {
   /** The current URL - internal, should always be accessed by getter/setter. */
@@ -150,13 +196,9 @@ export class Router {
     const route =
       this.#frontend_routes.find((r) => r.report === report) ?? backend_route;
 
-    is_loading_internal.set(true);
     try {
-      this.#current_report = await route.render(
-        this.#article,
-        url,
-        previous,
-        before_render,
+      this.#current_report = await loading_state.await(
+        route.render(this.#article, url, previous, before_render),
       );
     } catch (error: unknown) {
       assert_is_error(error);
@@ -169,7 +211,6 @@ export class Router {
       );
     }
     raw_page_title.set(this.#current_report.title);
-    is_loading_internal.set(false);
   }
 
   #beforeunload = () => (event: BeforeUnloadEvent) => {
@@ -201,7 +242,10 @@ export class Router {
    *  - the link starts with a hash '#', or
    *  - the link has a `data-remote` attribute.
    */
-  #intercept_link_click = (event: PointerEvent, link: Element): void => {
+  #intercept_link_click = (event: PointerEvent): void => {
+    // closest('a') does not include SVGAElement in the response type, so override
+    // https://github.com/microsoft/TypeScript/issues/51844
+    const link: unknown = get_el(event.target)?.closest("a");
     if (!(link instanceof HTMLAnchorElement || link instanceof SVGAElement)) {
       return;
     }
@@ -235,7 +279,7 @@ export class Router {
 
     window.addEventListener("beforeunload", this.#beforeunload);
     window.addEventListener("popstate", this.#popstate);
-    delegate(document, "click", "a", this.#intercept_link_click);
+    document.addEventListener("click", this.#intercept_link_click);
 
     handleExtensionPageLoad();
   }
@@ -322,6 +366,14 @@ export class Router {
     if (this.current.hash) {
       const target = new URL(this.current);
       target.hash = "";
+      if (navigation_api?.currentEntry != null && navigation_api.canGoBack) {
+        const entries = navigation_api.entries();
+        const previous_entry = entries[navigation_api.currentEntry.index - 1];
+        if (previous_entry?.url === target.href) {
+          navigation_api.back();
+          return;
+        }
+      }
       this.navigate(target, false);
     }
   };

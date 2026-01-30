@@ -27,6 +27,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Internet :: WWW/HTTP :: Dynamic Content",
     "Topic :: Office/Business :: Financial :: Accounting",
     "Topic :: Office/Business :: Financial :: Investment",
@@ -40,12 +41,13 @@ dependencies = [
     "beancount>=2,<4",
     "beanquery>=0.1,<0.3",
     "beangulp>=0.1",
-    "cheroot>=8,<11",
+    "cheroot>=8,<12",
     "click>=7,<9",
     "markdown2>=2.3.0,<3",
     "ply>=3.4",
     "simplejson>=3.16.0,<4",
     "watchfiles>=0.20.0",
+    "typing-extensions>=4.5; python_version<\"3.12\"",
 ]
 
 [project.urls]
@@ -73,10 +75,12 @@ docs = [
     "sphinx>=7",
     "sphinx-autodoc-typehints>=2",
 ]
-# Type-checking with mypy.
-mypy = [
+# Type-checking with mypy or ty.
+types = [
     "mypy>=1.14",
     "pytest>=8",
+    "ty>=0.0.2",
+    "typeguard>=4",
     "types-requests>=2.32.0.20250515",
     "types-setuptools>=67",
     "types-simplejson>=3",
@@ -100,17 +104,18 @@ test = [
     "pytest-cov>=6",
     "pytest>=8",
     "setuptools>=67",
+    "typeguard>=4",
 ]
 # Stuff for the dev environment.
 dev = [
-    { include-group = "mypy" },
     { include-group = "pre-commit" },
     { include-group = "test" },
+    { include-group = "types" },
     "ruff>=0.11",
 ]
 
 [build-system]
-requires = ["setuptools>=67", "setuptools_scm>=8.0", "Babel>=2.7,<3", "wheel"]
+requires = ["setuptools>=80", "setuptools_scm>=8", "Babel>=2.7,<3", "wheel"]
 build-backend = "_build_backend"
 backend-path = ["."]
 
@@ -139,6 +144,18 @@ where = ["src"]
 [tool.black]
 line-length = 79
 preview = true
+
+[tool.ty.environment]
+python-version = "3.12"
+
+[tool.ty.rules]
+# There's some mismatches betweeen mypy and ty still
+unused-ignore-comment = "ignore"
+
+[tool.ty.src]
+exclude = [
+    "src/fava/core/ingest.py",
+]
 
 [tool.mypy]
 mypy_path = "stubs"
@@ -225,7 +242,10 @@ max-args = 9
 "tests/conftest.py" = ["S101"]
 "tests/test_*.py" = ["D", "PLC2701", "S101", "SLF001"]
 "tests/data/import_config.py" = ["D", "INP", "S101"]
+"tests/data/import_config_with_duplicate_names.py" = ["INP"]
 "src/fava/core/filters.py" = ["D"]
+# Lazy imports in CLI and request handlers (for conditionally used deps)
+"src/fava/{__init__,application,cli}.py" = ["PLC0415"]
 
 # pylint is not run as part of linting for Fava anymore but we keep these disables
 # around for devs who might have pylint automatically run by their editors to avoid

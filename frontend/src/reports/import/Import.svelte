@@ -2,26 +2,35 @@
   import { onMount } from "svelte";
   import { SvelteMap } from "svelte/reactivity";
 
-  import { deleteDocument, get, moveDocument, saveEntries } from "../../api";
-  import type { Entry } from "../../entries";
-  import { urlFor } from "../../helpers";
-  import { _ } from "../../i18n";
-  import { notify, notify_err } from "../../notifications";
-  import { router } from "../../router";
-  import { import_config } from "../../stores/fava_options";
+  import {
+    delete_document,
+    get_extract,
+    move_document,
+    save_entries,
+  } from "../../api/index.ts";
+  import type { Entry } from "../../entries/index.ts";
+  import { urlFor } from "../../helpers.ts";
+  import { _ } from "../../i18n.ts";
+  import { is_non_empty } from "../../lib/array.ts";
+  import { notify, notify_err } from "../../notifications.ts";
+  import { router } from "../../router.ts";
+  import { import_config } from "../../stores/fava_options.ts";
   import DocumentPreview from "../documents/DocumentPreview.svelte";
-  import type { ImportReportProps } from ".";
   import Extract from "./Extract.svelte";
   import FileList from "./FileList.svelte";
   import ImportFileUpload from "./ImportFileUpload.svelte";
+  import type { ImportReportProps } from "./index.ts";
 
   let { files }: ImportReportProps = $props();
 
-  /** Whether the `<details>` for the "other files" is open. */
-  let show_other_files = $state.raw(
-    // initially show the other files if no importable files are present
-    files.every((file) => !file.identified_by_importers),
+  // initially show the other files if no importable files are present
+  // svelte-ignore state_referenced_locally
+  const show_other_files_initially = files.every(
+    (file) => !file.identified_by_importers,
   );
+
+  /** Whether the `<details>` for the "other files" is open. */
+  let show_other_files = $state.raw(show_other_files_initially);
 
   /** The array of entries to show the modal for. */
   let entries: Entry[] = $state([]);
@@ -56,7 +65,7 @@
    * Move the given file to the new file name (and remove from the list).
    */
   async function move(filename: string, account: string, newName: string) {
-    const moved = await moveDocument(filename, account, newName);
+    const moved = await move_document(filename, account, newName);
     if (moved) {
       router.reload();
     }
@@ -69,7 +78,7 @@
     if (!window.confirm(_("Delete this file?"))) {
       return;
     }
-    const removed = await deleteDocument(filename);
+    const removed = await delete_document(filename);
     if (removed) {
       if (selected === filename) {
         selected = null;
@@ -89,7 +98,7 @@
       return;
     }
     try {
-      entries = await get("extract", { filename, importer });
+      entries = await get_extract({ filename, importer });
       if (entries.length) {
         extract_cache.set(file_importer_key, entries);
       } else {
@@ -110,7 +119,9 @@
       extract_cache.delete(key);
     }
     entries = [];
-    await saveEntries(without_duplicates);
+    if (is_non_empty(without_duplicates)) {
+      await save_entries(without_duplicates);
+    }
   }
 </script>
 
@@ -129,25 +140,22 @@
     {save}
   />
   <div class="fixed-fullsize-container">
-    <div class="filelist">
+    <div class="filelist flex-column">
       {#if files.length === 0}
         <p>{_("No files were found for import.")}</p>
       {/if}
       {#if importable_files.length > 0}
-        <div>
-          <h2>{_("Importable Files")}</h2>
-          <FileList
-            files={importable_files}
-            {extract_cache}
-            {file_accounts}
-            {file_names}
-            bind:selected
-            {move}
-            {remove}
-            {extract}
-          />
-        </div>
-        <hr />
+        <h2>{_("Importable Files")}</h2>
+        <FileList
+          files={importable_files}
+          {extract_cache}
+          {file_accounts}
+          {file_names}
+          bind:selected
+          {move}
+          {remove}
+          {extract}
+        />
       {/if}
       {#if other_files.length > 0}
         <details bind:open={show_other_files}>
@@ -187,9 +195,5 @@
 
   .filelist {
     padding: 1rem;
-  }
-
-  hr {
-    margin: 1rem 0;
   }
 </style>

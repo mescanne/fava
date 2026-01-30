@@ -1,12 +1,13 @@
+import { deepEqual, equal, throws } from "node:assert/strict";
+import { beforeEach, test } from "node:test";
+
 import { get as store_get, writable } from "svelte/store";
-import { test } from "uvu";
-import * as assert from "uvu/assert";
 
-import { derived_array, localStorageSyncedStore } from "../src/lib/store";
-import { string } from "../src/lib/validation";
-import { setup_jsdom } from "./dom";
+import { derived_array, localStorageSyncedStore } from "../src/lib/store.ts";
+import { string } from "../src/lib/validation.ts";
+import { setup_jsdom } from "./dom.ts";
 
-test.before.each(setup_jsdom);
+beforeEach(setup_jsdom);
 
 test("derived store", () => {
   const source = writable<string[]>([]);
@@ -24,32 +25,32 @@ test("derived store", () => {
   source.set(["a", "b"]);
   source.set(["a", "b"]);
   source.set(["a", "b"]);
-  assert.is(source_count, 6);
-  assert.is(derived_count, 2);
+  equal(source_count, 6);
+  equal(derived_count, 2);
 });
 
 test("localStorage-synced stores", () => {
   const a = localStorageSyncedStore("test-store", string, () => "default");
-  assert.equal(a.key, "fava-test-store");
-  assert.equal(a.values(), []);
+  equal(a.key, "fava-test-store");
+  deepEqual(a.values(), []);
 
   // Getting the value will temporarily attach a subscriber (and unsubscribe as well).
   localStorage.removeItem(a.key);
-  assert.equal(store_get(a), "default");
+  equal(store_get(a), "default");
 
   localStorage.setItem(a.key, "invalid-non-json-stringified");
-  assert.equal(store_get(a), "default");
+  equal(store_get(a), "default");
 
   localStorage.setItem(a.key, JSON.stringify("value"));
-  assert.equal(store_get(a), "value");
+  equal(store_get(a), "value");
 
   a.set("another-value");
-  assert.equal(store_get(a), "another-value");
-  assert.equal(localStorage.getItem(a.key), JSON.stringify("another-value"));
+  equal(store_get(a), "another-value");
+  equal(localStorage.getItem(a.key), JSON.stringify("another-value"));
 
   a.update(() => "a-value");
-  assert.equal(store_get(a), "a-value");
-  assert.equal(localStorage.getItem(a.key), JSON.stringify("a-value"));
+  equal(store_get(a), "a-value");
+  equal(localStorage.getItem(a.key), JSON.stringify("a-value"));
 
   const seen_values: string[] = [];
   const unsubscribe = a.subscribe((v) => {
@@ -77,16 +78,14 @@ test("localStorage-synced stores", () => {
     }),
   );
   unsubscribe();
-  assert.equal(seen_values, ["a-value", "event-value"]);
+  deepEqual(seen_values, ["a-value", "event-value"]);
 
-  assert.throws(() => {
+  throws(() => {
     // The prefix is added automatically.
     localStorageSyncedStore("fava-test-store", string, () => "value");
   });
-  assert.throws(() => {
+  throws(() => {
     // No duplicate stores
     localStorageSyncedStore("test-store", string, () => "value");
   });
 });
-
-test.run();

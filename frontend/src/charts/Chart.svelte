@@ -1,18 +1,18 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
 
-  import { router } from "../router";
+  import { router } from "../router.ts";
   import {
     barChartMode,
     chartToggledCurrencies,
     hierarchyChartMode,
     lineChartMode,
-  } from "../stores/chart";
-  import { show_charts } from "../stores/url";
-  import type { FavaChart } from ".";
+  } from "../stores/chart.ts";
+  import { show_charts } from "../stores/url.ts";
   import BarChart from "./BarChart.svelte";
   import ChartLegend from "./ChartLegend.svelte";
   import HierarchyContainer from "./HierarchyContainer.svelte";
+  import type { FavaChart } from "./index.ts";
   import LineChart from "./LineChart.svelte";
   import ModeSwitch from "./ModeSwitch.svelte";
   import ScatterPlot from "./ScatterPlot.svelte";
@@ -88,6 +88,10 @@
 </div>
 
 <style>
+  .flex-row {
+    margin-bottom: var(--flex-gap);
+  }
+
   @media print {
     button.show-charts {
       display: none;

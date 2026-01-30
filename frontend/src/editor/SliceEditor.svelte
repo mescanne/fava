@@ -1,31 +1,35 @@
 <script lang="ts">
-  import type { LanguageSupport } from "@codemirror/language";
-
-  import { doDelete, put } from "../api";
-  import { initBeancountEditor } from "../codemirror/setup";
-  import { _ } from "../i18n";
-  import { notify_err } from "../notifications";
-  import { router } from "../router";
-  import { reloadAfterSavingEntrySlice } from "../stores/editor";
+  import { delete_source_slice, put_source_slice } from "../api/index.ts";
+  import { attach_editor } from "../codemirror/dom.ts";
+  import type { CodemirrorBeancount } from "../codemirror/types.ts";
+  import { _ } from "../i18n.ts";
+  import { notify_err } from "../notifications.ts";
+  import { router } from "../router.ts";
+  import { reloadAfterSavingEntrySlice } from "../stores/editor.ts";
+  import { currency_column, indent } from "../stores/fava_options.ts";
   import DeleteButton from "./DeleteButton.svelte";
   import SaveButton from "./SaveButton.svelte";
 
   interface Props {
-    beancount_language_support: LanguageSupport;
     slice: string;
     entry_hash: string;
     sha256sum: string;
+    codemirror_beancount: CodemirrorBeancount;
   }
 
   let {
-    beancount_language_support,
     slice,
     entry_hash = $bindable(),
     sha256sum = $bindable(),
+    codemirror_beancount,
   }: Props = $props();
 
-  let currentSlice = $state(slice);
-  let changed = $derived(currentSlice !== slice);
+  // Keep the initital slice value to check for changes.
+  // svelte-ignore state_referenced_locally
+  const initial_slice = slice;
+
+  let currentSlice = $state(initial_slice);
+  let changed = $derived(currentSlice !== initial_slice);
 
   let saving = $state(false);
   let deleting = $state(false);
@@ -34,7 +38,7 @@
     event?.preventDefault();
     saving = true;
     try {
-      sha256sum = await put("source_slice", {
+      sha256sum = await put_source_slice({
         entry_hash,
         source: currentSlice,
         sha256sum,
@@ -53,7 +57,7 @@
   async function deleteSlice() {
     deleting = true;
     try {
-      await doDelete("source_slice", { entry_hash, sha256sum });
+      await delete_source_slice({ entry_hash, sha256sum });
       entry_hash = "";
       if ($reloadAfterSavingEntrySlice) {
         router.reload();
@@ -66,8 +70,9 @@
     }
   }
 
-  const { renderEditor } = initBeancountEditor(
-    slice,
+  // svelte-ignore state_referenced_locally
+  const editor = codemirror_beancount.init_beancount_editor(
+    initial_slice,
     (state) => {
       currentSlice = state.sliceDoc();
     },
@@ -83,12 +88,13 @@
         },
       },
     ],
-    beancount_language_support,
+    $indent,
+    $currency_column,
   );
 </script>
 
-<form onsubmit={save}>
-  <div class="editor" {@attach renderEditor}></div>
+<form onsubmit={save} class="flex-column">
+  <div class="editor" {@attach attach_editor(editor)}></div>
   <div class="flex-row">
     <span class="spacer"></span>
     <label>
@@ -101,12 +107,7 @@
 </form>
 
 <style>
-  label span {
-    margin-right: 1rem;
-  }
-
   .editor {
-    margin-bottom: 0.5rem;
     border: 1px solid var(--sidebar-border);
   }
 </style>

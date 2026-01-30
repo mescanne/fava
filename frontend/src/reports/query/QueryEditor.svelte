@@ -1,28 +1,30 @@
 <script lang="ts">
-  import { replaceContents } from "../../codemirror/editor-transactions";
-  import { initQueryEditor } from "../../codemirror/setup";
-  import { _ } from "../../i18n";
-  import { keyboardShortcut } from "../../keyboard-shortcuts";
+  import { attach_editor } from "../../codemirror/dom.ts";
+  import type { CodemirrorBql } from "../../codemirror/types.ts";
+  import { _ } from "../../i18n.ts";
+  import { keyboardShortcut } from "../../keyboard-shortcuts.ts";
 
   interface Props {
     value: string;
     submit: () => void;
+    codemirror_bql: CodemirrorBql;
   }
 
-  let { value = $bindable(), submit }: Props = $props();
+  let { value = $bindable(), submit, codemirror_bql }: Props = $props();
 
-  const { editor, renderEditor } = initQueryEditor(
+  // svelte-ignore state_referenced_locally
+  const editor = codemirror_bql.init_query_editor(
     value,
     (state) => {
       value = state.sliceDoc();
     },
     _("...enter a BQL query. 'help' to list available commands."),
-    submit,
+    () => submit,
   );
 
   $effect(() => {
     if (value !== editor.state.sliceDoc()) {
-      editor.dispatch(replaceContents(editor.state, value));
+      editor.dispatch(codemirror_bql.replace_contents(editor.state, value));
     }
   });
 </script>
@@ -33,7 +35,7 @@
     submit();
   }}
 >
-  <div {@attach renderEditor}></div>
+  <div {@attach attach_editor(editor)}></div>
   <button type="submit" {@attach keyboardShortcut("Control+Enter")}>
     {_("Submit")}
   </button>

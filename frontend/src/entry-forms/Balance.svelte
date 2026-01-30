@@ -1,8 +1,8 @@
 <script lang="ts">
   import AutocompleteInput from "../AutocompleteInput.svelte";
-  import type { Balance, EntryMetadata } from "../entries";
-  import { _ } from "../i18n";
-  import { currencies } from "../stores";
+  import type { Balance, EntryMetadata } from "../entries/index.ts";
+  import { _ } from "../i18n.ts";
+  import { currencies } from "../stores/index.ts";
   import AccountInput from "./AccountInput.svelte";
   import AddMetadataButton from "./AddMetadataButton.svelte";
   import EntryMetadataSvelte from "./EntryMetadata.svelte";
@@ -14,7 +14,7 @@
   let { entry = $bindable() }: Props = $props();
 </script>
 
-<div>
+<div class="flex-column">
   <div class="flex-row">
     <input
       type="date"
@@ -28,7 +28,6 @@
     />
     <h4>{_("Balance")}</h4>
     <AccountInput
-      className="grow"
       bind:value={
         () => entry.account,
         (account: string) => {
@@ -37,6 +36,7 @@
       }
       date={entry.date}
       required
+      --autocomplete-wrapper-flex="1"
     />
     <input
       type="tel"
@@ -52,7 +52,6 @@
       required
     />
     <AutocompleteInput
-      className="currency"
       placeholder={_("Currency")}
       suggestions={$currencies}
       bind:value={
@@ -62,6 +61,7 @@
         }
       }
       required
+      --autocomplete-wrapper-flex="0 6em"
     />
     <AddMetadataButton
       bind:meta={
@@ -81,9 +81,3 @@
     }
   />
 </div>
-
-<style>
-  div :global(.currency) {
-    width: 6em;
-  }
-</style>

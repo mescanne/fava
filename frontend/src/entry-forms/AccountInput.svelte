@@ -1,9 +1,9 @@
 <script lang="ts">
   import AutocompleteInput from "../AutocompleteInput.svelte";
-  import { _ } from "../i18n";
-  import { date as validate_date } from "../lib/validation";
-  import { accounts, accounts_set } from "../stores";
-  import { is_closed_account } from "../stores/accounts";
+  import { _ } from "../i18n.ts";
+  import { date as validate_date } from "../lib/validation.ts";
+  import { is_closed_account } from "../stores/accounts.ts";
+  import { accounts, accounts_set } from "../stores/index.ts";
 
   interface Props {
     /** The account name input value. */
@@ -12,19 +12,11 @@
     suggestions?: string[] | undefined;
     /** The date to enter this account for to exclude closed accounts. */
     date?: string | undefined;
-    /** An optional class name to assign to the input element. */
-    className?: string;
     /** Whether to mark the input as required. */
     required?: boolean;
   }
 
-  let {
-    value = $bindable(),
-    suggestions,
-    date,
-    className,
-    required,
-  }: Props = $props();
+  let { value = $bindable(), suggestions, date, required }: Props = $props();
 
   let checkValidity = $derived((val: string) =>
     !$accounts_set.size || $accounts_set.has(val) || (required !== true && !val)
@@ -46,7 +38,6 @@
 <AutocompleteInput
   placeholder={_("Account")}
   bind:value
-  {className}
   {checkValidity}
   {required}
   suggestions={filtered_suggestions}

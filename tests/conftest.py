@@ -6,49 +6,64 @@ import os
 import re
 import shutil
 import sys
+from collections.abc import Callable
+from collections.abc import Mapping
+from collections.abc import Sequence
+from decimal import Decimal
 from pathlib import Path
 from pprint import pformat
 from textwrap import dedent
 from typing import Any
+from typing import get_type_hints
+from typing import Literal
+from typing import Protocol
 from typing import TYPE_CHECKING
+from typing import TypeAlias
+from typing import TypeGuard
 
 import pytest
+from beancount.core import data
+from beancount.core.display_context import DisplayContext
+from flask.app import Flask
+from flask.testing import FlaskClient
 
 from fava.application import create_app
 from fava.beans.abc import Custom
+from fava.beans.abc import Directive
 from fava.beans.load import load_string
+from fava.beans.types import LoaderResult
 from fava.core import FavaLedger
+from fava.core.budgets import BudgetDict
 from fava.core.budgets import parse_budgets
 from fava.core.charts import dumps
+from fava.core.charts import loads
+from fava.core.query import QueryResult
+from fava.util.date import Interval
 from fava.util.date import local_today
 
-if TYPE_CHECKING:  # pragma: no cover
-    from collections.abc import Callable
+if TYPE_CHECKING:
     from collections.abc import Generator
-    from typing import Literal
-    from typing import Protocol
-    from typing import TypeAlias
-    from typing import TypeGuard
 
-    from flask.app import Flask
-    from flask.testing import FlaskClient
 
-    from fava.beans.abc import Directive
-    from fava.beans.types import LoaderResult
-    from fava.core.budgets import BudgetDict
+class SnapshotFunc(Protocol):
+    """Callable protocol for the snapshot function."""
 
-    class SnapshotFunc(Protocol):
-        """Callable protocol for the snapshot function."""
+    def __call__(
+        self,
+        data: Any,
+        /,
+        *,
+        name: str = ...,
+        json: bool = ...,
+    ) -> None:
+        """Check snapshot."""
 
-        def __call__(
-            self,
-            data: Any,
-            /,
-            *,
-            name: str = ...,
-            json: bool = ...,
-        ) -> None:
-            """Check snapshot."""
+
+class CompareFunc(Protocol):
+    """Callable protocol for the compare_snapshot."""
+
+    def __call__(self, name: str, expected: str, /, *, json: bool) -> None:
+        """Compare snapshot."""
 
 
 @pytest.fixture(scope="session")
@@ -58,7 +73,7 @@ def test_data_dir() -> Path:
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
-    """Add pytest options to influence snapshot behaviour."""
+    """Add pytest options to influence snapshot and typeguard behaviour."""
     parser.addoption(
         "--snapshot-clean",
         action="store_true",
@@ -77,12 +92,18 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         dest="SNAPSHOT_UPDATE",
         help="Update snapshot files",
     )
+    parser.addoption(
+        "--typeguard-fixtures",
+        action="store_true",
+        dest="TYPEGUARD_FIXTURES",
+        help="Runtime typeguard checks on test fixtures",
+    )
 
 
 @pytest.fixture(scope="session")
 def compare_snapshot(
     request: pytest.FixtureRequest,
-) -> Generator[Callable[[str, str], None], None, None]:
+) -> Generator[CompareFunc, None, None]:
     """Compare on-disk snapshots, possibly updating if configured."""
     snap_dir = Path(__file__).parent / "__snapshots__"
     if not snap_dir.exists():
@@ -91,16 +112,20 @@ def compare_snapshot(
     should_update = request.config.getoption("SNAPSHOT_UPDATE")
     seen_snapshots = set()
 
-    def check_snapshot(name: str, expected: str) -> None:
+    def check_snapshot(name: str, expected: str, *, json: bool) -> None:
         snap_file = snap_dir / name
         seen_snapshots.add(snap_file)
 
         contents = snap_file.read_text("utf-8") if snap_file.exists() else ""
+        expected_to_compare = loads(expected) if json else expected
+        contents_to_compare = (
+            loads(contents) if json and contents else contents
+        )
         if should_update:
-            if expected != contents:
+            if expected_to_compare != contents_to_compare:
                 snap_file.write_text(expected, "utf-8")
         else:
-            assert expected == contents, (
+            assert expected_to_compare == contents_to_compare, (
                 "Snaphot test failed. Snapshots can be updated with "
                 "`pytest --snapshot-update`"
             )
@@ -135,7 +160,7 @@ class SnapCount:
 def snapshot(
     request: pytest.FixtureRequest,
     test_data_dir: Path,
-    compare_snapshot: Callable[[str, str], None],
+    compare_snapshot: CompareFunc,
 ) -> SnapshotFunc:
     """Create a snaphot for some given data."""
     fn_name = request.function.__name__
@@ -163,34 +188,24 @@ def snapshot(
         # print strings directly, otherwise try pretty-printing
         out = data if isinstance(data, str) else pformat(data)
         # replace today
-        today = local_today()
-        out = out.replace(str(today), "TODAY")
+        out = out.replace(str(local_today()), "TODAY")
         # replace entry hashes
-        out = re.sub(r'_hash": "[0-9a-f]+', '_hash": "ENTRY_HASH', out)
-        out = re.sub(r"context-[0-9a-f]+", "context-ENTRY_HASH", out)
-        out = re.sub(
-            r"data-entry=\\\"[0-9a-f]+", 'data-entry=\\"ENTRY_HASH', out
-        )
-        # replace mtimes
-        out = re.sub(r"mtime=\d+", "mtime=MTIME", out)
-        out = re.sub(r'id="ledger-mtime">\d+', 'id="ledger-mtime">MTIME', out)
+        out = re.sub(r'_hash": ?"[0-9a-f]+', '_hash":"ENTRY_HASH', out)
+        out = re.sub(r"#context-[0-9a-f]+", "#context-ENTRY_HASH", out)
         # replace env-dependant info
-        out = out.replace('have_excel": false', 'have_excel": true')
+        out = re.sub(r'have_excel":\s*(false|False)', 'have_excel": true', out)
 
         for dir_path, replacement in [
             (f"{test_data_dir}{os.sep}", "TEST_DATA_DIR/"),
         ]:
+            json_escaped = dumps(dir_path)[1:-1]
+            out = out.replace(json_escaped, replacement)
             if sys.platform == "win32":
-                out = out.replace(
-                    dir_path.replace(os.sep, os.sep * 2), replacement
-                )
                 out = out.replace(
                     dir_path.replace(os.sep, os.sep * 4), replacement
                 )
-            else:
-                out = out.replace(dir_path, replacement)
 
-        compare_snapshot(filename, out)
+        compare_snapshot(filename, out, json=json)
 
     return snapshot_data
 
@@ -203,6 +218,7 @@ def app(test_data_dir: Path) -> Flask:
             test_data_dir / filename
             for filename in [
                 "long-example.beancount",
+                "edit-example.beancount",
                 "example.beancount",
                 "extension-report-example.beancount",
                 "import.beancount",
@@ -243,44 +259,45 @@ def load_doc(request: pytest.FixtureRequest) -> LoaderResult:
 
 
 @pytest.fixture
-def load_doc_entries(load_doc: LoaderResult) -> list[Directive]:
+def load_doc_entries(load_doc: LoaderResult) -> Sequence[Directive]:
     """Load the docstring as Beancount entries."""
     entries, _errors, _options = load_doc
     return entries
 
 
 def _is_custom_entries_list(
-    entries: list[Directive],
-) -> TypeGuard[list[Custom]]:
+    entries: Sequence[Directive],
+) -> TypeGuard[Sequence[Custom]]:
     return all(isinstance(e, Custom) for e in entries)
 
 
 @pytest.fixture
-def load_doc_custom_entries(load_doc_entries: list[Directive]) -> list[Custom]:
+def load_doc_custom_entries(
+    load_doc_entries: Sequence[Directive],
+) -> Sequence[Custom]:
     """Load the docstring as Beancount custom entries."""
     assert _is_custom_entries_list(load_doc_entries)
-    return load_doc_entries
+    return load_doc_entries  # ty:ignore[invalid-return-type]
 
 
 @pytest.fixture
-def budgets_doc(load_doc_custom_entries: list[Custom]) -> BudgetDict:
+def budgets_doc(load_doc_custom_entries: Sequence[Custom]) -> BudgetDict:
     """Load the budgets from the custom entries in the docstring."""
     budgets, _ = parse_budgets(load_doc_custom_entries)
     return budgets
 
 
-if TYPE_CHECKING:  # pragma: no cover
-    #: Slugs of the ledgers that are loaded for the test cases.
-    LedgerSlug: TypeAlias = Literal[
-        "example",
-        "query-example",
-        "long-example",
-        "extension-report",
-        "import",
-        "off-by-one",
-        "invalid-unicode",
-    ]
-    GetFavaLedger: TypeAlias = Callable[[LedgerSlug], FavaLedger]
+#: Slugs of the ledgers that are loaded for the test cases.
+LedgerSlug: TypeAlias = Literal[
+    "example",
+    "query-example",
+    "long-example",
+    "extension-report",
+    "import",
+    "off-by-one",
+    "invalid-unicode",
+]
+GetFavaLedger: TypeAlias = Callable[[LedgerSlug], FavaLedger]
 
 
 @pytest.fixture(scope="session")
@@ -305,3 +322,53 @@ def small_example_ledger(get_ledger: GetFavaLedger) -> FavaLedger:
 def example_ledger(get_ledger: GetFavaLedger) -> FavaLedger:
     """Get the long example ledger."""
     return get_ledger("long-example")
+
+
+class FixtureTypeCheckError(Exception):
+    """Error on trying to type-check ."""
+
+
+def pytest_runtest_makereport(item: pytest.Function) -> None:
+    """Type-check fixtures."""
+    if not item.config.getoption("TYPEGUARD_FIXTURES"):
+        return
+    import typeguard  # noqa: PLC0415
+
+    # Since many type imports are guarded in TYPE_CHECKING blocks, we
+    # provide them here so that they can be resolved.
+    extra_types = {
+        "BudgetDict": BudgetDict,
+        "Callable": Callable,
+        "Custom": Custom,
+        "Decimal": Decimal,
+        "Directive": Directive,
+        "DisplayContext": DisplayContext,
+        "FavaLedger": FavaLedger,
+        "Flask": Flask,
+        "FlaskClient": FlaskClient,
+        "GetFavaLedger": GetFavaLedger,
+        "Interval": Interval,
+        "LoaderResult": LoaderResult,
+        "Meta": Mapping[str, Any],
+        "Path": Path,
+        "QueryResult": QueryResult,
+        "Sequence": Sequence,
+        "SnapshotFunc": SnapshotFunc,
+        "data": data,
+        "pytest": pytest,
+    }
+    annotations = get_type_hints(
+        item.obj, globalns=item.obj.__globals__, localns=extra_types
+    )
+
+    for attr, type_ in annotations.items():
+        if attr in item.funcargs:
+            try:
+                typeguard.check_type(
+                    item.funcargs[attr],
+                    type_,
+                    collection_check_strategy=typeguard.CollectionCheckStrategy.ALL_ITEMS,
+                )
+            except typeguard.TypeCheckError as err:
+                msg = f"Checking {item} failed."
+                raise FixtureTypeCheckError(msg) from err

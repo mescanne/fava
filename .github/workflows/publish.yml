@@ -18,21 +18,23 @@ jobs:
   build-and-publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v6
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
-          python-version: "3.12"
-      - uses: actions/setup-node@v5
+          python-version: "3.13"
+      - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
         with:
           node-version: "lts/*"
-          cache: "npm"
-          cache-dependency-path: frontend/package-lock.json
-      - run: npm install --global npm@latest
+          package-manager-cache: false
       - run: cd frontend && npm ci
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+        with:
+          enable-cache: false
       - run: uv build
+      - run: git diff --exit-code
       - name: Publish release
         if: github.event_name == 'push' && github.ref_type == 'tag'
         env:

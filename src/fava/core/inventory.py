@@ -6,7 +6,7 @@ from decimal import Decimal
 from typing import NamedTuple
 from typing import TYPE_CHECKING
 
-from fava.beans.protocols import Cost
+from fava.beans import protocols
 from fava.beans.str import cost_to_string
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -16,14 +16,11 @@ if TYPE_CHECKING:  # pragma: no cover
     from typing import Concatenate
     from typing import ParamSpec
 
-    from fava.beans.protocols import Amount
-    from fava.beans.protocols import Position
-
     P = ParamSpec("P")
 
 
 ZERO = Decimal()
-InventoryKey = tuple[str, Cost | None]
+InventoryKey = tuple[str, protocols.Cost | None]
 
 
 class _Amount(NamedTuple):
@@ -39,8 +36,8 @@ class _Cost(NamedTuple):
 
 
 class _Position(NamedTuple):
-    units: Amount
-    cost: Cost | None
+    units: protocols.Amount
+    cost: protocols.Cost | None
 
 
 class SimpleCounterInventory(dict[str, Decimal]):
@@ -66,15 +63,17 @@ class SimpleCounterInventory(dict[str, Decimal]):
 
     def reduce(
         self,
-        reducer: Callable[Concatenate[Position, P], Amount],
+        reducer: Callable[
+            Concatenate[protocols.Position, P], protocols.Amount
+        ],
         *args: P.args,
-        **_kwargs: P.kwargs,
+        **kwargs: P.kwargs,
     ) -> SimpleCounterInventory:
         """Reduce inventory."""
         counter = SimpleCounterInventory()
         for currency, number in self.items():
             pos = _Position(_Amount(number, currency), None)
-            amount = reducer(pos, *args)  # type: ignore[call-arg]
+            amount = reducer(pos, *args, **kwargs)
             counter.add(amount.currency, amount.number)
         return counter
 
@@ -115,11 +114,18 @@ class CounterInventory(dict[InventoryKey, Decimal]):
                 strings.append(f"{number} {currency} {{{cost_str}}}")
         return strings
 
+    def positions(self) -> Iterator[protocols.Position]:
+        """Iterator over the positions in the inventory."""
+        for (currency, cost), number in self.items():
+            yield _Position(_Amount(number, currency), cost)
+
     def reduce(
         self,
-        reducer: Callable[Concatenate[Position, P], Amount],
+        reducer: Callable[
+            Concatenate[protocols.Position, P], protocols.Amount
+        ],
         *args: P.args,
-        **_kwargs: P.kwargs,
+        **kwargs: P.kwargs,
     ) -> SimpleCounterInventory:
         """Reduce inventory.
 
@@ -127,18 +133,19 @@ class CounterInventory(dict[InventoryKey, Decimal]):
         currencies as keys.
         """
         counter = SimpleCounterInventory()
-        for (currency, cost), number in self.items():
-            pos = _Position(_Amount(number, currency), cost)
-            amount = reducer(pos, *args)  # type: ignore[call-arg]
+        for pos in self.positions():
+            amount = reducer(pos, *args, **kwargs)
             counter.add(amount.currency, amount.number)
         return counter
 
-    def add_amount(self, amount: Amount, cost: Cost | None = None) -> None:
+    def add_amount(
+        self, amount: protocols.Amount, cost: protocols.Cost | None = None
+    ) -> None:
         """Add an Amount to the inventory."""
         key = (amount.currency, cost)
         self.add(key, amount.number)
 
-    def add_position(self, pos: Position) -> None:
+    def add_position(self, pos: protocols.Position) -> None:
         """Add a Position or Posting to the inventory."""
         self.add_amount(pos.units, pos.cost)
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date
 from datetime import timedelta
 from functools import cached_property
@@ -12,7 +13,6 @@ from os.path import normpath
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from beancount.core.inventory import Inventory
 from beancount.utils.encryption import is_encrypted_file
 
 from fava.beans.abc import Balance
@@ -25,18 +25,17 @@ from fava.beans.funcs import hash_entry
 from fava.beans.helpers import slice_entry_dates
 from fava.beans.load import load_uncached
 from fava.beans.prices import FavaPriceMap
-from fava.beans.str import to_string
+from fava.beans.str import position_to_string
 from fava.core.accounts import AccountDict
 from fava.core.attributes import AttributesModule
 from fava.core.budgets import BudgetModule
 from fava.core.charts import ChartModule
 from fava.core.commodities import CommoditiesModule
-from fava.core.conversion import cost_or_value
+from fava.core.conversion import conversion_from_str
 from fava.core.extensions import ExtensionModule
 from fava.core.fava_options import parse_options
 from fava.core.file import _incomplete_sortkey
 from fava.core.file import FileModule
-from fava.core.file import get_entry_slice
 from fava.core.filters import AccountFilter
 from fava.core.filters import AdvancedFilter
 from fava.core.filters import TimeFilter
@@ -58,6 +57,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Mapping
     from collections.abc import Sequence
     from decimal import Decimal
+    from typing import Literal
 
     from fava.beans.abc import Directive
     from fava.beans.types import BeancountOptions
@@ -93,6 +93,14 @@ class StatementMetadataInvalidError(FavaAPIError):
         )
 
 
+@dataclass(frozen=True)
+class JournalPage:
+    """A page of journal entries."""
+
+    entries: Sequence[tuple[int, Directive]]
+    total_pages: int
+
+
 class FilteredLedger:
     """Filtered Beancount ledger."""
 
@@ -116,9 +124,24 @@ class FilteredLedger:
         filter: str | None = None,  # noqa: A002
         time: str | None = None,
     ) -> None:
+        """Create a filtered view of a ledger.
+
+        Args:
+            ledger: The ledger to filter.
+            account: The account filter.
+            filter: The advanced filter.
+            time: The time filter.
+        """
         self.ledger = ledger
         self.date_range: DateRange | None = None
-        self._pages: list[Sequence[tuple[int, Directive]]] | None = None
+        self._pages: (
+            tuple[
+                int,
+                Literal["asc", "desc"],
+                list[Sequence[tuple[int, Directive]]],
+            ]
+            | None
+        ) = None
 
         entries = ledger.all_entries
         if account:
@@ -163,6 +186,11 @@ class FilteredLedger:
         return entries
 
     @cached_property
+    def entries_without_prices(self) -> Sequence[Directive]:
+        """The filtered entries, without prices for journals."""
+        return [e for e in self.entries if not isinstance(e, Price)]
+
+    @cached_property
     def root_tree(self) -> Tree:
         """A root tree."""
         return Tree(self.entries)
@@ -175,7 +203,11 @@ class FilteredLedger:
         return tree
 
     def interval_ranges(self, interval: Interval) -> Sequence[DateRange]:
-        """Yield date ranges corresponding to interval boundaries."""
+        """Yield date ranges corresponding to interval boundaries.
+
+        Args:
+            interval: The interval to yield ranges for.
+        """
         if not self._date_first or not self._date_last:
             return []
         complete = not self.date_range
@@ -184,7 +216,12 @@ class FilteredLedger:
         )
 
     def prices(self, base: str, quote: str) -> Sequence[tuple[date, Decimal]]:
-        """List all prices."""
+        """List all prices for a pair of commodities.
+
+        Args:
+            base: The price base.
+            quote: The price quote.
+        """
         all_prices = self.ledger.prices.get_all_prices((base, quote))
         if all_prices is None:
             return []
@@ -215,34 +252,47 @@ class FilteredLedger:
         return close_date < date_range.end if date_range else True
 
     def paginate_journal(
-        self, page: int, per_page: int = 1000
-    ) -> tuple[Sequence[tuple[int, Directive]], int]:
+        self,
+        page: int,
+        per_page: int = 1000,
+        order: Literal["asc", "desc"] = "desc",
+    ) -> JournalPage | None:
         """Get entries for a journal page with pagination info.
 
         Args:
             page: Page number (1-indexed).
+            order: Datewise order to sort in
             per_page: Number of entries per page.
 
         Returns:
-            JournalPage with page_entries as (global_index, directive) tuples
-            in reverse chronological order total_pages.
+            A JournalPage, containing a list of entries as (global_index,
+            directive) tuples in reverse chronological order and the total
+            number of pages.
         """
-        if self._pages is None:
-            self._pages = []
-            enumerated = reversed(list(enumerate(self.entries)))
-            while batch := tuple(islice(enumerated, per_page)):
-                self._pages.append(batch)
-        if not self._pages and page == 1:
-            return [], 0
-        return self._pages[page - 1], len(self._pages)
+        if (
+            self._pages is None
+            or self._pages[0] != per_page
+            or self._pages[1] != order
+        ):
+            pages: list[Sequence[tuple[int, Directive]]] = []
+            enumerated = list(enumerate(self.entries_without_prices))
+            entries = (
+                iter(enumerated) if order == "asc" else reversed(enumerated)
+            )
+            while batch := tuple(islice(entries, per_page)):
+                pages.append(batch)
+            if not pages:
+                pages.append([])
+            self._pages = (per_page, order, pages)
+        _per_pages, _order, pages = self._pages
+        total = len(pages)
+        if page > total:
+            return None
+        return JournalPage(pages[page - 1], total)
 
 
 class FavaLedger:
-    """Create an interface for a Beancount ledger.
-
-    Arguments:
-        path: Path to the main Beancount file.
-    """
+    """Interface for a Beancount ledger."""
 
     __slots__ = (
         "_is_encrypted",
@@ -260,6 +310,7 @@ class FavaLedger:
         "fava_options_errors",
         "file",
         "format_decimal",
+        "get_entry",
         "get_filtered",
         "ingest",
         "load_errors",
@@ -291,44 +342,63 @@ class FavaLedger:
     #: Dict of list of all (unfiltered) entries by type.
     all_entries_by_type: EntriesByType
 
+    #: A :class:`.AccountDict` module - details about the accounts.
+    accounts: AccountDict
+
+    #: An :class:`AttributesModule` instance.
+    attributes: AttributesModule
+
+    #: A :class:`.BudgetModule` instance.
+    budgets: BudgetModule
+
+    #: A :class:`.ChartModule` instance.
+    charts: ChartModule
+
+    #: A :class:`.CommoditiesModule` instance.
+    commodities: CommoditiesModule
+
+    #: A :class:`.ExtensionModule` instance.
+    extensions: ExtensionModule
+
+    #: A :class:`.FileModule` instance.
+    file: FileModule
+
+    #: A :class:`.DecimalFormatModule` instance.
+    format_decimal: DecimalFormatModule
+
+    #: A :class:`.IngestModule` instance.
+    ingest: IngestModule
+
+    #: A :class:`.FavaMisc` instance.
+    misc: FavaMisc
+
+    #: A :class:`.QueryShell` instance.
+    query_shell: QueryShell
+
     def __init__(self, path: str, *, poll_watcher: bool = False) -> None:
+        """Create an interface for a Beancount ledger.
+
+        Arguments:
+            path: Path to the main Beancount file.
+            poll_watcher: Whether to use the polling file watcher.
+        """
         #: The path to the main Beancount file.
         self.beancount_file_path = path
         self._is_encrypted = is_encrypted_file(path)
         self.get_filtered = lru_cache(maxsize=16)(self._get_filtered)
+        self.get_entry = lru_cache(maxsize=16)(self._get_entry)
 
-        #: An :class:`AttributesModule` instance.
-        self.attributes = AttributesModule(self)
-
-        #: A :class:`.BudgetModule` instance.
-        self.budgets = BudgetModule(self)
-
-        #: A :class:`.ChartModule` instance.
-        self.charts = ChartModule(self)
-
-        #: A :class:`.CommoditiesModule` instance.
-        self.commodities = CommoditiesModule(self)
-
-        #: A :class:`.ExtensionModule` instance.
-        self.extensions = ExtensionModule(self)
-
-        #: A :class:`.FileModule` instance.
-        self.file = FileModule(self)
-
-        #: A :class:`.IngestModule` instance.
-        self.ingest = IngestModule(self)
-
-        #: A :class:`.FavaMisc` instance.
-        self.misc = FavaMisc(self)
-
-        #: A :class:`.DecimalFormatModule` instance.
-        self.format_decimal = DecimalFormatModule(self)
-
-        #: A :class:`.QueryShell` instance.
-        self.query_shell = QueryShell(self)
-
-        #: A :class:`.AccountDict` module - details about the accounts.
         self.accounts = AccountDict(self)
+        self.attributes = AttributesModule(self)
+        self.budgets = BudgetModule(self)
+        self.charts = ChartModule(self)
+        self.commodities = CommoditiesModule(self)
+        self.extensions = ExtensionModule(self)
+        self.file = FileModule(self)
+        self.format_decimal = DecimalFormatModule(self)
+        self.ingest = IngestModule(self)
+        self.misc = FavaMisc(self)
+        self.query_shell = QueryShell(self)
 
         self.watcher = WatchfilesWatcher() if not poll_watcher else Watcher()
 
@@ -341,6 +411,7 @@ class FavaLedger:
             is_encrypted=self._is_encrypted,
         )
         self.get_filtered.cache_clear()
+        self.get_entry.cache_clear()
 
         self.all_entries_by_type = group_entries_by_type(self.all_entries)
         self.prices = FavaPriceMap(self.all_entries_by_type.Price)
@@ -375,12 +446,15 @@ class FavaLedger:
         filter: str | None = None,  # noqa: A002
         time: str | None = None,
     ) -> FilteredLedger:
-        """Filter the ledger."""
+        """Filter the ledger.
+
+        Args:
+            account: The account filter.
+            filter: The advanced filter.
+            time: The time filter.
+        """
         return FilteredLedger(
-            ledger=self,
-            account=account,
-            filter=filter,
-            time=time,
+            ledger=self, account=account, filter=filter, time=time
         )
 
     @property
@@ -499,7 +573,7 @@ class FavaLedger:
         *,
         with_children: bool,
     ) -> Iterable[
-        tuple[Directive, SimpleCounterInventory, SimpleCounterInventory]
+        tuple[int, Directive, SimpleCounterInventory, SimpleCounterInventory]
     ]:
         """Journal for an account.
 
@@ -511,15 +585,16 @@ class FavaLedger:
                            the account.
 
         Yields:
-            Tuples of ``(entry, change, balance)``.
+            Tuples of ``(index, entry, change, balance)``.
         """
+        conv = conversion_from_str(conversion)
         relevant_account = account_tester(
             account_name, with_children=with_children
         )
 
         prices = self.prices
         balance = CounterInventory()
-        for entry in filtered.entries:
+        for index, entry in enumerate(filtered.entries_without_prices):
             change = CounterInventory()
             entry_is_relevant = False
             postings = getattr(entry, "postings", None)
@@ -534,12 +609,13 @@ class FavaLedger:
 
             if entry_is_relevant:
                 yield (
+                    index,
                     entry,
-                    cost_or_value(change, conversion, prices, entry.date),
-                    cost_or_value(balance, conversion, prices, entry.date),
+                    conv.apply(change, prices, entry.date),
+                    conv.apply(balance, prices, entry.date),
                 )
 
-    def get_entry(self, entry_hash: str) -> Directive:
+    def _get_entry(self, entry_hash: str) -> Directive:
         """Find an entry.
 
         Arguments:
@@ -567,8 +643,6 @@ class FavaLedger:
         Directive,
         Mapping[str, Sequence[str]] | None,
         Mapping[str, Sequence[str]] | None,
-        str,
-        str,
     ]:
         """Context for an entry.
 
@@ -582,32 +656,31 @@ class FavaLedger:
             the balances before and after the entry of the affected accounts.
         """
         entry = self.get_entry(entry_hash)
-        source_slice, sha256sum = get_entry_slice(entry)
 
         if not isinstance(entry, (Balance, Transaction)):
-            return entry, None, None, source_slice, sha256sum
+            return entry, None, None
 
         entry_accounts = get_entry_accounts(entry)
-        balances = {account: Inventory() for account in entry_accounts}
+        balances = {account: CounterInventory() for account in entry_accounts}
         for entry_ in takewhile(lambda e: e is not entry, self.all_entries):
             if isinstance(entry_, Transaction):
                 for posting in entry_.postings:
                     balance = balances.get(posting.account, None)
                     if balance is not None:
-                        balance.add_position(posting)  # type: ignore[arg-type]
+                        balance.add_position(posting)
 
-        def visualise(inv: Inventory) -> Sequence[str]:
-            return [to_string(pos) for pos in sorted(iter(inv))]
+        def visualise(inv: CounterInventory) -> Sequence[str]:
+            return [position_to_string(pos) for pos in inv.positions()]
 
         before = {acc: visualise(inv) for acc, inv in balances.items()}
 
         if isinstance(entry, Balance):
-            return entry, before, None, source_slice, sha256sum
+            return entry, before, None
 
         for posting in entry.postings:
-            balances[posting.account].add_position(posting)  # type: ignore[arg-type]
+            balances[posting.account].add_position(posting)
         after = {acc: visualise(inv) for acc, inv in balances.items()}
-        return entry, before, after, source_slice, sha256sum
+        return entry, before, after
 
     def commodity_pairs(self) -> Sequence[tuple[str, str]]:
         """List pairs of commodities.

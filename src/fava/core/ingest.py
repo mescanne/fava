@@ -7,6 +7,7 @@ import os
 import sys
 import traceback
 from dataclasses import dataclass
+from functools import wraps
 from inspect import get_annotations
 from inspect import signature
 from os import altsep
@@ -178,6 +179,7 @@ class FileImporters:
 def _catch_any(func: Callable[P, T]) -> Callable[P, T]:
     """Helper to catch any exception that might be raised by the importer."""
 
+    @wraps(func)
     def wrapper(*args: P.args, **kwds: P.kwargs) -> T:
         try:
             return func(*args, **kwds)
@@ -359,6 +361,9 @@ def load_import_config(
             )
             raise ImportConfigLoadError(msg)
         wrapped_importer = WrappedImporter(importer)
+        if wrapped_importer.name in importers:
+            msg = f"Duplicate importer name found: {wrapped_importer.name}"
+            raise ImportConfigLoadError(msg)
         importers[wrapped_importer.name] = wrapped_importer
     return importers, hooks
 

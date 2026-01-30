@@ -5,14 +5,14 @@
   import { arc } from "d3-shape";
   import { untrack } from "svelte";
 
-  import { formatPercentage } from "../format";
-  import { urlForAccount } from "../helpers";
-  import { ctx } from "../stores/format";
-  import { sunburstScale } from "./helpers";
+  import { formatPercentage } from "../format.ts";
+  import { urlForAccount } from "../helpers.ts";
+  import { ctx } from "../stores/format.ts";
+  import { sunburstScale } from "./helpers.ts";
   import type {
     AccountHierarchyDatum,
     AccountHierarchyNode,
-  } from "./hierarchy";
+  } from "./hierarchy.ts";
 
   interface Props {
     data: AccountHierarchyNode;
@@ -34,8 +34,7 @@
 
   $effect.pre(() => {
     // if-expression to run on each change of chart
-    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-    data;
+    void data;
     untrack(() => {
       current = null;
     });

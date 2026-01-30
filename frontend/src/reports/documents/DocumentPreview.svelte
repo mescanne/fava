@@ -20,8 +20,8 @@
 
 <script lang="ts">
   import DocumentPreviewEditor from "../../editor/DocumentPreviewEditor.svelte";
-  import { urlForRaw } from "../../helpers";
-  import { ext } from "../../lib/paths";
+  import { urlForRaw } from "../../helpers.ts";
+  import { ext } from "../../lib/paths.ts";
 
   interface Props {
     filename: string;
@@ -36,7 +36,9 @@
 {#if extension === "pdf"}
   <object title={filename} data={url}></object>
 {:else if plainTextExtensions.includes(extension)}
-  <DocumentPreviewEditor {url} />
+  {#await import("../../codemirror/bql.ts") then codemirror_bql}
+    <DocumentPreviewEditor {url} {codemirror_bql} />
+  {/await}
 {:else if imageExtensions.includes(extension)}
   <img src={url} alt={filename} />
 {:else if ["html", "htm"].includes(extension)}

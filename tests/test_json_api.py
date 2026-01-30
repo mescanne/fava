@@ -110,7 +110,7 @@ def test_api_add_document_and_move_and_delete(
         app.preprocess_request()
 
         # error when no documents dir is set
-        monkeypatch.setitem(g.ledger.options, "documents", [])
+        monkeypatch.setitem(g.ledger.options, "documents", [])  # ty:ignore[invalid-argument-type]
 
         response = test_client.put(add_url)
         assert_api_error(
@@ -120,7 +120,7 @@ def test_api_add_document_and_move_and_delete(
         )
 
         # upload to temporary directory
-        monkeypatch.setitem(g.ledger.options, "documents", [str(tmp_path)])
+        monkeypatch.setitem(g.ledger.options, "documents", [str(tmp_path)])  # ty:ignore[invalid-argument-type]
         monkeypatch.setattr(
             g.ledger.fava_options, "import_dirs", [str(account_dir)]
         )
@@ -154,9 +154,9 @@ def test_api_add_document_and_move_and_delete(
         )
 
         # move to same path should fail
-        response = test_client.get(
+        response = test_client.put(
             move_url,
-            query_string={
+            json={
                 "account": account,
                 "filename": str(filename),
                 "new_name": "2015-12-12 test",
@@ -166,9 +166,9 @@ def test_api_add_document_and_move_and_delete(
             response, f"{filename} already exists.", HTTPStatus.CONFLICT
         )
 
-        response = test_client.get(
+        response = test_client.put(
             move_url,
-            query_string={
+            json={
                 "account": account,
                 "filename": str(filename),
                 "new_name": "2015-12-12 test_moved",
@@ -257,7 +257,7 @@ def test_api_errors(test_client: FlaskClient, snapshot: SnapshotFunc) -> None:
     def get_message(err: Any) -> str:
         return str(err["message"])
 
-    snapshot(sorted(data, key=get_message))
+    snapshot(sorted(data, key=get_message), json=True)
 
 
 def test_api_context(
@@ -301,8 +301,15 @@ def test_api_context(
             and entry.date == datetime.date(2016, 5, 9)
         ),
     )
+
     response = test_client.get(
         "/long-example/api/context",
+        query_string={"entry_hash": entry_hash},
+    )
+    data = assert_api_success(response)
+    snapshot(data, json=True)
+    response = test_client.get(
+        "/long-example/api/source_slice",
         query_string={"entry_hash": entry_hash},
     )
     data = assert_api_success(response)
@@ -316,6 +323,12 @@ def test_api_context(
     data = assert_api_success(response)
     snapshot(data, json=True)
     assert not data.get("balances_before")
+    response = test_client.get(
+        "/long-example/api/source_slice",
+        query_string={"entry_hash": entry_hash},
+    )
+    data = assert_api_success(response)
+    snapshot(data, json=True)
 
 
 def test_api_payee_accounts(
@@ -386,27 +399,27 @@ def test_api_imports(
 
 
 def test_api_move(test_client: FlaskClient) -> None:
-    response = test_client.get("/long-example/api/move")
+    response = test_client.put("/long-example/api/move")
     assert_api_error(
         response,
-        "Invalid API request: Parameter `account` is missing.",
+        "Invalid API request: Invalid JSON body.",
         HTTPStatus.BAD_REQUEST,
     )
 
     invalid = {"account": "Assets", "new_name": "new", "filename": "old"}
-    response = test_client.get("/long-example/api/move", query_string=invalid)
+    response = test_client.put("/long-example/api/move", json=invalid)
     assert_api_error(
         response,
         "You need to set a documents folder.",
         HTTPStatus.UNPROCESSABLE_ENTITY,
     )
 
-    response = test_client.get("/import/api/move", query_string=invalid)
+    response = test_client.put("/import/api/move", json=invalid)
     assert_api_error(response, "Not a valid account: 'Assets'")
 
-    response = test_client.get(
+    response = test_client.put(
         "/import/api/move",
-        query_string={
+        json={
             **invalid,
             "account": "Assets:Checking",
         },
@@ -417,10 +430,7 @@ def test_api_move(test_client: FlaskClient) -> None:
 
 
 def test_api_get_source_invalid_unicode(test_client: FlaskClient) -> None:
-    response = test_client.get(
-        "/invalid-unicode/api/source",
-        query_string={"filename": ""},
-    )
+    response = test_client.get("/invalid-unicode/api/source")
     err_msg = assert_api_error(response)
     assert "The source file contains invalid unicode" in err_msg
 
@@ -434,9 +444,23 @@ def test_api_get_source_unknown_file(test_client: FlaskClient) -> None:
     assert "Trying to read a non-source file" in err_msg
 
 
+def test_api_get_source_slice_unprocessable(test_client: FlaskClient) -> None:
+    response = test_client.get(
+        "/edit-example/api/source_slice?entry_hash=ba17fb171c2ef1789d8def32f58bf21f"
+    )
+    assert_api_error(
+        response,
+        status=HTTPStatus.UNPROCESSABLE_ENTITY,
+    )
+
+
 def test_api_put_source_bad_request(test_client: FlaskClient) -> None:
     response = test_client.put("/example/api/source")
-    assert_api_error(response, "Invalid JSON request.")
+    assert_api_error(
+        response,
+        "Invalid API request: Invalid JSON body.",
+        HTTPStatus.BAD_REQUEST,
+    )
 
 
 def test_api_source(app_in_tmp_dir: Flask) -> None:
@@ -450,7 +474,7 @@ def test_api_source(app_in_tmp_dir: Flask) -> None:
     sha256sum = _sha256_str(source)
 
     # read
-    response = test_client.get(url, query_string={"filename": ""})
+    response = test_client.get(url)
     data = assert_api_success(response)
     assert data["source"] == source
 
@@ -494,7 +518,7 @@ def test_api_source_slice_and_insert_metadata(app_in_tmp_dir: Flask) -> None:
     assert first_txn.payee == "Kin Soy"
     entry_hash = hash_entry(first_txn)
     response = test_client.get(
-        "/edit-example/api/context",
+        "/edit-example/api/source_slice",
         query_string={"entry_hash": entry_hash},
     )
     data = assert_api_success(response)
@@ -778,6 +802,15 @@ def test_api_commodities_empty(
     assert not data
 
 
+def test_api_journal_page_not_found(
+    test_client: FlaskClient,
+) -> None:
+    response = test_client.get(
+        "/long-example/api/journal_page?page=1000&order=desc"
+    )
+    assert_api_error(response, status=HTTPStatus.NOT_FOUND)
+
+
 def test_api_filter_error(
     test_client: FlaskClient,
 ) -> None:
@@ -816,6 +849,7 @@ def test_api_filter_error(
                 "?interval=day&conversion=at_value&a=Assets&r=balances"
             ),
         ),
+        ("statistics", "/long-example/api/statistics"),
         ("options", "/long-example/api/options"),
     ],
 )

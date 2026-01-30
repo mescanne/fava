@@ -1,6 +1,6 @@
 <script lang="ts">
-  import type { EntryMetadata } from "../entries";
-  import { _ } from "../i18n";
+  import type { EntryMetadata } from "../entries/index.ts";
+  import { _ } from "../i18n.ts";
 
   interface Props {
     meta: EntryMetadata;
@@ -11,7 +11,7 @@
   let meta_entries = $derived(meta.entries());
 </script>
 
-{#each meta_entries as [key, value], index (key)}
+{#each meta_entries as [key, value], index (index)}
   <div class="flex-row">
     <button
       type="button"
@@ -33,6 +33,7 @@
       }}
       required
     />
+    :
     <input
       type="text"
       class="value"
@@ -49,6 +50,7 @@
         onclick={() => {
           meta = meta.add();
         }}
+        aria-label={_("Add metadata")}
         title={_("Add metadata")}
       >
         +
@@ -59,17 +61,15 @@
 
 <style>
   div {
-    padding-left: 56px;
-    font-size: 0.8em;
+    padding-left: 3rem;
   }
 
   input.key {
-    width: 10em;
+    width: 12rem;
   }
 
   input.value {
     flex-grow: 1;
-    max-width: 15em;
   }
 
   @media (width <= 767px) {

@@ -30,9 +30,13 @@ from fava.beans.abc import Document
 from fava.beans.abc import Event
 from fava.context import g
 from fava.core import EntryNotFoundForHashError
+from fava.core.conversion import UNITS
 from fava.core.documents import filepath_in_document_folder
 from fava.core.documents import is_document_or_import_file
+from fava.core.file import GeneratedEntryError
+from fava.core.file import get_entry_slice
 from fava.core.filters import FilterError
+from fava.core.group_entries import group_entries_by_type
 from fava.core.ingest import filepath_in_primary_imports_folder
 from fava.core.misc import align
 from fava.helpers import FavaAPIError
@@ -53,6 +57,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
     from fava.beans.abc import Directive
     from fava.core.ingest import FileImporters
+    from fava.core.inventory import SimpleCounterInventory
     from fava.core.query import QueryResultTable
     from fava.core.query import QueryResultText
     from fava.core.tree import SerialisedTreeNode
@@ -84,6 +89,13 @@ class IncorrectTypeValidationError(ValidationError):
         )
 
 
+class InvalidJsonRequestError(ValidationError):
+    """Validation failed due to invalid JSON in body."""
+
+    def __init__(self) -> None:
+        super().__init__("Invalid JSON body.")
+
+
 def json_err(msg: str, status: HTTPStatus) -> Response:
     """Jsonify the error message."""
     res = jsonify({"error": msg})
@@ -105,6 +117,15 @@ class FavaJSONAPIError(FavaAPIError):
     @abstractmethod
     def status(self) -> HTTPStatus:
         """HTTP status that should be used for the response."""
+
+
+class NotFoundError(FavaJSONAPIError):
+    """Not found."""
+
+    status = HTTPStatus.NOT_FOUND
+
+    def __init__(self) -> None:
+        super().__init__("Not found.")
 
 
 class TargetPathAlreadyExistsError(FavaJSONAPIError):
@@ -193,6 +214,11 @@ def _(error: EntryNotFoundForHashError) -> Response:
     return json_err(error.message, HTTPStatus.NOT_FOUND)
 
 
+@json_api.errorhandler(GeneratedEntryError)
+def _(error: GeneratedEntryError) -> Response:
+    return json_err(error.message, HTTPStatus.UNPROCESSABLE_ENTITY)
+
+
 def validate_func_arguments(
     func: Callable[..., Any],
 ) -> Callable[[Mapping[str, str]], list[str]] | None:
@@ -245,9 +271,9 @@ def api_endpoint(func: Callable[..., Any]) -> Callable[[], Response]:
     parameters are extracted from the URL query string and passed to the
     decorated endpoint handler.
     """
-    method, _, name = func.__name__.partition("_")
+    method, _, name = func.__name__.partition("_")  # ty:ignore[unresolved-attribute]
     if method not in {"get", "delete", "put"}:  # pragma: no cover
-        msg = f"Invalid endpoint function name: {func.__name__}"
+        msg = f"Invalid endpoint function name: {func.__name__}"  # ty:ignore[unresolved-attribute]
         raise ValueError(msg)
     validator = validate_func_arguments(func)
 
@@ -258,8 +284,7 @@ def api_endpoint(func: Callable[..., Any]) -> Callable[[], Response]:
             if method == "put":
                 request_json = request.get_json(silent=True)
                 if request_json is None:
-                    msg = "Invalid JSON request."
-                    raise FavaAPIError(msg)
+                    raise InvalidJsonRequestError
                 data = request_json
             else:
                 data = request.args
@@ -309,20 +334,34 @@ class Context:
     entry: Any
     balances_before: Mapping[str, Sequence[str]] | None
     balances_after: Mapping[str, Sequence[str]] | None
-    sha256sum: str
-    slice: str
 
 
 @api_endpoint
 def get_context(entry_hash: str) -> Context:
     """Entry context."""
-    entry, before, after, slice_, sha256sum = g.ledger.context(entry_hash)
-    return Context(serialise(entry), before, after, sha256sum, slice_)
+    entry, before, after = g.ledger.context(entry_hash)
+    return Context(serialise(entry), before, after)
+
+
+@dataclass(frozen=True)
+class SourceSlice:
+    """Source slice for an entry."""
+
+    sha256sum: str
+    slice: str
 
 
 @api_endpoint
-def get_move(account: str, new_name: str, filename: str) -> str:
-    """Move a file."""
+def get_source_slice(entry_hash: str) -> SourceSlice:
+    """Entry slice."""
+    entry = g.ledger.get_entry(entry_hash)
+    source_slice, sha256sum = get_entry_slice(entry)
+    return SourceSlice(sha256sum, source_slice)
+
+
+@api_endpoint
+def put_move(account: str, new_name: str, filename: str) -> str:
+    """Move a document."""
     if not g.ledger.options["documents"]:
         raise DocumentDirectoryMissingError
 
@@ -365,16 +404,25 @@ def get_narrations() -> Sequence[str]:
     return g.ledger.attributes.narrations
 
 
+@dataclass(frozen=True)
+class SourceFile:
+    """Source slice for an entry."""
+
+    file_path: str
+    sha256sum: str
+    source: str
+
+
 @api_endpoint
-def get_source(filename: str) -> Mapping[str, str]:
+def get_source() -> SourceFile:
     """Load one of the source files."""
     file_path = (
-        filename
+        request.args.get("filename", "")
         or g.ledger.fava_options.default_file
         or g.ledger.beancount_file_path
     )
     source, sha256sum = g.ledger.file.get_source(Path(file_path))
-    return {"source": source, "sha256sum": sha256sum, "file_path": file_path}
+    return SourceFile(file_path=file_path, sha256sum=sha256sum, source=source)
 
 
 @api_endpoint
@@ -510,6 +558,36 @@ def get_journal() -> Sequence[Directive]:
     return [serialise(e) for e in g.filtered.entries]
 
 
+@dataclass(frozen=True)
+class JournalPage:
+    """A rendered journal page."""
+
+    page: int
+    total_pages: int
+    journal: str
+
+
+@api_endpoint
+def get_journal_page(page: str, order: str) -> JournalPage:
+    """Get the HTML contents for a Journal page."""
+    page_number = int(page)
+    journal_table_contents = get_template_attribute(
+        "_journal_table.html", "journal_table_contents"
+    )
+    if page == "1":
+        g.ledger.changed()
+    journal_page = g.filtered.paginate_journal(
+        page_number, order="asc" if order == "asc" else "desc"
+    )
+    if journal_page is None:
+        raise NotFoundError
+    return JournalPage(
+        page=page_number,
+        total_pages=journal_page.total_pages,
+        journal=journal_table_contents(journal_page.entries),
+    )
+
+
 @api_endpoint
 def get_events() -> Sequence[Event]:
     """Get all (filtered) events."""
@@ -615,8 +693,6 @@ def get_income_statement() -> TreeReport:
             options["name_expenses"],
             label=f"{gettext('Expenses')} ({g.interval.label})",
         ),
-        ChartApi.hierarchy(options["name_income"]),
-        ChartApi.hierarchy(options["name_expenses"]),
     ]
     root_tree = g.filtered.root_tree
     trees = [
@@ -638,12 +714,7 @@ def get_balance_sheet() -> TreeReport:
     g.ledger.changed()
     options = g.ledger.options
 
-    charts = [
-        ChartApi.net_worth(),
-        ChartApi.hierarchy(options["name_assets"]),
-        ChartApi.hierarchy(options["name_liabilities"]),
-        ChartApi.hierarchy(options["name_equity"]),
-    ]
+    charts = [ChartApi.net_worth()]
     root_tree_closed = g.filtered.root_tree_closed
     trees = [
         root_tree_closed.get(options["name_assets"]),
@@ -662,20 +733,12 @@ def get_balance_sheet() -> TreeReport:
 def get_trial_balance() -> TreeReport:
     """Get the data for the trial balance."""
     g.ledger.changed()
-    options = g.ledger.options
 
-    charts = [
-        ChartApi.hierarchy(options["name_income"]),
-        ChartApi.hierarchy(options["name_expenses"]),
-        ChartApi.hierarchy(options["name_assets"]),
-        ChartApi.hierarchy(options["name_liabilities"]),
-        ChartApi.hierarchy(options["name_equity"]),
-    ]
     trees = [g.filtered.root_tree.get("")]
 
     return TreeReport(
         g.filtered.date_range,
-        charts,
+        charts=[],
         trees=[tree.serialise_with_context() for tree in trees],
     )
 
@@ -732,17 +795,6 @@ def get_account_report() -> AccountReportJournal | AccountReportTree:
             accumulate=accumulate,
         )
 
-        charts.append(ChartApi.hierarchy(account_name))
-        charts.extend(
-            ChartApi.hierarchy(
-                account_name,
-                date_range.begin,
-                date_range.end,
-                label=g.interval.format_date(date_range.begin),
-            )
-            for date_range in dates[:3]
-        )
-
         all_accounts = (
             interval_balances[0].accounts if interval_balances else []
         )
@@ -774,7 +826,7 @@ def get_account_report() -> AccountReportJournal | AccountReportTree:
             charts,
             interval_balances=[
                 tree.get(account_name).serialise(
-                    g.conversion,
+                    g.conv,
                     g.ledger.prices,
                     date_range.end_inclusive,
                     with_cost=False,
@@ -787,16 +839,51 @@ def get_account_report() -> AccountReportJournal | AccountReportTree:
             budgets=budgets,
         )
 
-    journal = get_template_attribute("_journal_table.html", "journal_table")
+    journal_table_contents = get_template_attribute(
+        "_journal_table.html", "journal_table_contents"
+    )
     entries = reversed(
         g.ledger.account_journal(
             g.filtered,
             account_name,
-            g.conversion,
+            g.conv,
             with_children=g.ledger.fava_options.account_journal_include_children,
         )
     )
     return AccountReportJournal(
         charts,
-        journal=journal(entries, show_change_and_balance=True),
+        journal=journal_table_contents(entries, show_change_and_balance=True),
+    )
+
+
+@dataclass(frozen=True)
+class Statistics:
+    """Data for the statistics report."""
+
+    all_balance_directives: str
+    balances: Mapping[str, SimpleCounterInventory]
+    entries_by_type: Mapping[str, int]
+
+
+@api_endpoint
+def get_statistics() -> Statistics:
+    """Get the data for the statistics report."""
+    g.ledger.changed()
+
+    entries_by_type = {
+        type_: len(entries)
+        for type_, entries in group_entries_by_type(g.filtered.entries)
+        ._asdict()
+        .items()
+    }
+
+    balances = {
+        account_name: UNITS.apply(node.balance)
+        for account_name, node in g.filtered.root_tree.items()
+    }
+
+    return Statistics(
+        all_balance_directives=g.ledger.accounts.all_balance_directives(),
+        balances=balances,
+        entries_by_type=entries_by_type,
     )

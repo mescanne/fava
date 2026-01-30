@@ -1,12 +1,12 @@
 <script lang="ts">
-  import { saveEntries } from "../api";
-  import { Balance, Note, Transaction } from "../entries";
+  import { save_entries } from "../api/index.ts";
+  import { Balance, Note, Transaction } from "../entries/index.ts";
   import Entry from "../entry-forms/Entry.svelte";
-  import { todayAsString } from "../format";
-  import { _ } from "../i18n";
-  import { router } from "../router";
-  import { addEntryContinue } from "../stores/editor";
-  import { hash } from "../stores/url";
+  import { todayAsString } from "../format.ts";
+  import { _ } from "../i18n.ts";
+  import { router } from "../router.ts";
+  import { addEntryContinue } from "../stores/editor.ts";
+  import { hash } from "../stores/url.ts";
   import ModalBase from "./ModalBase.svelte";
 
   /** The entry types which have support adding in the modal. */
@@ -23,7 +23,7 @@
 
   async function submit(event: SubmitEvent) {
     event.preventDefault();
-    await saveEntries([entry]);
+    await save_entries([entry]);
     const added_entry_date = entry.date;
     // Reuse the date of the entry that was just added.
     // @ts-expect-error all these entries have that static method, but TS is not able to determine that
@@ -38,7 +38,7 @@
 </script>
 
 <ModalBase {shown} focus=".payee input">
-  <form onsubmit={submit}>
+  <form onsubmit={submit} class="flex-column">
     <h3>
       {_("Add")}
       {#each entryTypes as [Cls, displayName] (displayName)}
@@ -69,6 +69,10 @@
 </ModalBase>
 
 <style>
+  h3 {
+    margin: 0;
+  }
+
   label span {
     margin-right: 1rem;
   }

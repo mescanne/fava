@@ -1,21 +1,22 @@
 <script lang="ts">
-  import { _ } from "../i18n";
-  import type { KeySpec } from "../keyboard-shortcuts";
-  import { keyboardShortcut } from "../keyboard-shortcuts";
-  import { lastActiveChartName } from "../stores/chart";
-  import { show_charts } from "../stores/url";
-  import type { FavaChart } from ".";
+  import { _ } from "../i18n.ts";
+  import type { KeySpec } from "../keyboard-shortcuts.ts";
+  import { keyboardShortcut } from "../keyboard-shortcuts.ts";
+  import { lastActiveChartName } from "../stores/chart.ts";
+  import { show_charts } from "../stores/url.ts";
   import Chart from "./Chart.svelte";
+  import { chartContext } from "./context.ts";
   import ConversionAndInterval from "./ConversionAndInterval.svelte";
+  import type { ParsedFavaChart } from "./index.ts";
 
   interface Props {
-    charts: readonly FavaChart[];
+    charts: readonly ParsedFavaChart[];
   }
 
   let { charts }: Props = $props();
 
   let active_chart = $derived(
-    charts.find((c) => c.name === $lastActiveChartName) ?? charts[0],
+    charts.find((c) => c.label === $lastActiveChartName) ?? charts[0],
   );
 
   // Get the shortcut key for jumping to the previous chart.
@@ -35,22 +36,22 @@
 </script>
 
 {#if active_chart}
-  <Chart chart={active_chart}>
+  <Chart chart={active_chart.with_context($chartContext)}>
     <ConversionAndInterval />
   </Chart>
   <div hidden={!$show_charts}>
-    {#each charts as chart, index (chart.name)}
+    {#each charts as chart, index (chart.label)}
       <button
         type="button"
         class="unset"
         class:selected={chart === active_chart}
         onclick={() => {
-          $lastActiveChartName = chart.name;
+          $lastActiveChartName = chart.label;
         }}
         {@attach keyboardShortcut(shortcutPrevious(index))}
         {@attach keyboardShortcut(shortcutNext(index))}
       >
-        {chart.name}
+        {chart.label}
       </button>
     {/each}
   </div>
@@ -58,8 +59,7 @@
 
 <style>
   div {
-    margin-bottom: 1.5em;
-    font-size: 1em;
+    margin-bottom: 1em;
     color: var(--text-color-lightest);
     text-align: center;
   }

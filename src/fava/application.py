@@ -27,8 +27,6 @@ from urllib.parse import urlencode
 from urllib.parse import urlparse
 from urllib.parse import urlunparse
 
-import markdown2
-from beancount import __version__ as beancount_version
 from flask import abort
 from flask import current_app
 from flask import Flask
@@ -43,13 +41,11 @@ from flask_babel import get_translations
 from markupsafe import Markup
 from werkzeug.utils import secure_filename
 
-from fava import __version__ as fava_version
 from fava import LOCALES
 from fava import template_filters
 from fava._ctx_globals_class import Context
 from fava.beans import funcs
 from fava.context import g
-from fava.core import conversion
 from fava.core import FavaLedger
 from fava.core.charts import FavaJSONProvider
 from fava.core.documents import is_document_or_import_file
@@ -74,11 +70,6 @@ if TYPE_CHECKING:  # pragma: no cover
 
 setup_logging()
 
-SERVER_SIDE_REPORTS = [
-    "journal",
-    "statistics",
-]
-
 CLIENT_SIDE_REPORTS = [
     "balance_sheet",
     "commodities",
@@ -88,9 +79,11 @@ CLIENT_SIDE_REPORTS = [
     "events",
     "holdings",
     "import",
+    "journal",
     "income_statement",
     "options",
     "query",
+    "statistics",
     "trial_balance",
 ]
 
@@ -153,7 +146,7 @@ class _LedgerSlugLoader:
                 # avoid loading it already loaded while waiting for the lock
                 if self._ledgers is None:  # pragma: no cover
                     self._ledgers = self._load()
-        return self._ledgers
+        return self._ledgers  # ty:ignore[invalid-return-type]
 
     @property
     def ledgers_by_slug(self) -> dict[str, FavaLedger]:
@@ -232,7 +225,6 @@ def _setup_template_config(fava_app: Flask, *, incognito: bool) -> None:
     }
 
     # Add template filters
-    fava_app.add_template_filter(conversion.units)
     fava_app.add_template_filter(funcs.hash_entry)
     fava_app.add_template_filter(template_filters.basename)
     fava_app.add_template_filter(template_filters.flag_to_type)
@@ -352,8 +344,6 @@ def _setup_routes(fava_app: Flask) -> None:  # noqa: PLR0915
         """Endpoint for most reports."""
         if report_name in CLIENT_SIDE_REPORTS:
             return render_template("_layout.html", content="")
-        if report_name in SERVER_SIDE_REPORTS:
-            return render_template(f"{report_name}.html")
         return abort(404)
 
     @fava_app.route(
@@ -386,7 +376,7 @@ def _setup_routes(fava_app: Flask) -> None:  # noqa: PLR0915
         """Endpoint for extension reports."""
         ext = g.ledger.extensions.get_extension(extension_name)
         if ext is None or ext.report_title is None:
-            abort(404)
+            return abort(404)
 
         g.extension = ext
         template = ext.jinja_env.get_template(f"{ext.name}.html")
@@ -421,11 +411,15 @@ def _setup_routes(fava_app: Flask) -> None:  # noqa: PLR0915
     @fava_app.route("/<bfile>/help/<page_slug>")
     def help_page(page_slug: str) -> str:
         """Fava's included documentation."""
+        from importlib.metadata import version
+
+        from markdown2 import markdown
+
         if page_slug not in HELP_PAGES:
-            abort(404)
+            return abort(404)
         help_path = Path(__file__).parent / "help" / (page_slug + ".md")
         contents = help_path.read_text(encoding="utf-8")
-        html = markdown2.markdown(
+        html = markdown(
             contents,
             extras=["fenced-code-blocks", "tables", "header-ids"],
         )
@@ -435,8 +429,8 @@ def _setup_routes(fava_app: Flask) -> None:  # noqa: PLR0915
             help_html=Markup(  # noqa: S704
                 render_template_string(
                     html,
-                    beancount_version=beancount_version,
-                    fava_version=fava_version,
+                    beancount_version=version("beancount"),
+                    fava_version=version("fava"),
                 ),
             ),
             HELP_PAGES=HELP_PAGES,
