@@ -51,6 +51,15 @@ class InsertEntryOption:
     lineno: int
 
 
+@dataclass(frozen=True)
+class ImportDataSourceOption:
+    """Virtual data source option for import."""
+
+    name: str
+    filename: str
+    config: str
+
+
 class MissingOptionError(ValueError):  # noqa: D101
     def __init__(self) -> None:
         super().__init__("Custom entry is missing option name.")
@@ -101,6 +110,9 @@ class FavaOptions:
     import_config: str | None = None
     import_dirs: Sequence[str] = field(default_factory=list)
     import_feed_review: bool = False
+    import_data_source: Sequence[ImportDataSourceOption] = field(
+        default_factory=list
+    )
     indent: int = 2
     insert_entry: Sequence[InsertEntryOption] = field(default_factory=list)
     invert_gains_losses_colors: bool = False
@@ -143,6 +155,14 @@ class FavaOptions:
         """Add an import directory."""
         # It's typed as Sequence so that it's not externally mutated
         self.import_dirs.append(value)  # type: ignore[attr-defined]  # ty:ignore[unresolved-attribute]
+
+    def set_import_data_source(
+        self, name: str, filename: str, config: str
+    ) -> None:
+        """Add an import data source."""
+        opt = ImportDataSourceOption(name, filename, config)
+        # It's typed as Sequence so that it's not externally mutated
+        self.import_data_source.append(opt)  # type: ignore[attr-defined]  # ty:ignore[unresolved-attribute]
 
     def set_insert_entry(
         self, value: str, date: datetime.date, filename: str, lineno: int
@@ -194,6 +214,22 @@ def parse_option_custom_entry(  # noqa: PLR0912
     key = str(entry.values[0].value).replace("-", "_")
     if key not in All_OPTS:
         raise UnknownOptionError(key)
+
+    if key == "import_data_source":
+        if len(entry.values) < 4:
+            msg = "import-data-source requires name, filename, and config"
+            raise ValueError(msg)
+        name = entry.values[1].value
+        fname = entry.values[2].value
+        config = entry.values[3].value
+        if (
+            not isinstance(name, str)
+            or not isinstance(fname, str)
+            or not isinstance(config, str)
+        ):
+            raise NotAStringOptionError(key)
+        options.set_import_data_source(name, fname, config)
+        return
 
     value = entry.values[1].value if len(entry.values) > 1 else ""
     if not isinstance(value, str):

@@ -125,6 +125,7 @@ export const importable_files_validator = array(
         name: string,
       }),
     ),
+    is_data_source: boolean,
   }),
 );
 

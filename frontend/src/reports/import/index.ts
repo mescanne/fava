@@ -20,6 +20,8 @@ export interface ProcessedImportableFile {
   readonly basename: string;
   /** Whether at least one importer identified this file. */
   readonly identified_by_importers: boolean;
+  /** Whether this is a virtual data source, not a physical file. */
+  readonly is_data_source: boolean;
   readonly importers: {
     readonly account: string;
     readonly importer_name: string;
@@ -37,6 +39,7 @@ export const import_report = new Route<ImportReportProps>(
   async () =>
     get_imports()
       .then((files) => {
+        console.log("Raw files from API:", files);
         // Initially set the file names for all importable files.
         const today = todayAsString();
         return files.map((file) => {
@@ -52,7 +55,14 @@ export const import_report = new Route<ImportReportProps>(
             const newName = newFilename(today, file.basename);
             importers.push({ account: "", newName, importer_name: "" });
           }
-          return { ...file, identified_by_importers, importers };
+          const result = {
+            ...file,
+            is_data_source: file.is_data_source,
+            identified_by_importers,
+            importers,
+          };
+          console.log("Processed file:", result);
+          return result;
         });
       })
       .then((files) => ({ files })),

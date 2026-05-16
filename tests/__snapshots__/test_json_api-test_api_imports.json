@@ -2,36 +2,43 @@
   {
     "basename": "edit-example.beancount",
     "importers": [],
+    "is_data_source": false,
     "name": "TEST_DATA_DIR/edit-example.beancount"
   },
   {
     "basename": "errors.beancount",
     "importers": [],
+    "is_data_source": false,
     "name": "TEST_DATA_DIR/errors.beancount"
   },
   {
     "basename": "example-balances.csv",
     "importers": [],
+    "is_data_source": false,
     "name": "TEST_DATA_DIR/example-balances.csv"
   },
   {
     "basename": "example-utf8-\ud83e\udd81.txt",
     "importers": [],
+    "is_data_source": false,
     "name": "TEST_DATA_DIR/example-utf8-\ud83e\udd81.txt"
   },
   {
     "basename": "example.beancount",
     "importers": [],
+    "is_data_source": false,
     "name": "TEST_DATA_DIR/example.beancount"
   },
   {
     "basename": "extension-report-example.beancount",
     "importers": [],
+    "is_data_source": false,
     "name": "TEST_DATA_DIR/extension-report-example.beancount"
   },
   {
     "basename": "import.beancount",
     "importers": [],
+    "is_data_source": false,
     "name": "TEST_DATA_DIR/import.beancount"
   },
   {
@@ -62,41 +69,49 @@
         "name": "import.csv"
       }
     ],
+    "is_data_source": false,
     "name": "TEST_DATA_DIR/import.csv"
   },
   {
     "basename": "import_config.py",
     "importers": [],
+    "is_data_source": false,
     "name": "TEST_DATA_DIR/import_config.py"
   },
   {
     "basename": "import_config_with_duplicate_names.py",
     "importers": [],
+    "is_data_source": false,
     "name": "TEST_DATA_DIR/import_config_with_duplicate_names.py"
   },
   {
     "basename": "invalid-unicode.beancount",
     "importers": [],
+    "is_data_source": false,
     "name": "TEST_DATA_DIR/invalid-unicode.beancount"
   },
   {
     "basename": "long-example.beancount",
     "importers": [],
+    "is_data_source": false,
     "name": "TEST_DATA_DIR/long-example.beancount"
   },
   {
     "basename": "off-by-one.beancount",
     "importers": [],
+    "is_data_source": false,
     "name": "TEST_DATA_DIR/off-by-one.beancount"
   },
   {
     "basename": "query-example.beancount",
     "importers": [],
+    "is_data_source": false,
     "name": "TEST_DATA_DIR/query-example.beancount"
   },
   {
     "basename": "receipt.pdf",
     "importers": [],
+    "is_data_source": false,
     "name": "TEST_DATA_DIR/receipt.pdf"
   }
 ]

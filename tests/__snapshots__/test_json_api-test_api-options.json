@@ -47,6 +47,7 @@
     "default-page": "'income_statement/'",
     "fiscal-year-end": "FiscalYearEnd(month=12, day=31)",
     "import-config": "None",
+    "import-data-source": "[]",
     "import-dirs": "[]",
     "import-feed-review": "False",
     "indent": "2",

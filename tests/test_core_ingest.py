@@ -10,6 +10,7 @@ from beangulp.importer import Importer
 
 from fava.beans.abc import Note
 from fava.beans.abc import Transaction
+from fava.core.fava_options import ImportDataSourceOption
 from fava.core.ingest import FileImportInfo
 from fava.core.ingest import filepath_in_primary_imports_folder
 from fava.core.ingest import ImportConfigLoadError
@@ -260,3 +261,74 @@ def test_filepath_in_primary_imports_folder(
     monkeypatch.setattr(example_ledger.fava_options, "import_dirs", [])
     with pytest.raises(FavaAPIError):
         filepath_in_primary_imports_folder("filename", example_ledger)
+
+
+def test_import_data_source(
+    get_ledger: GetFavaLedger,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ingest_ledger = get_ledger("import")
+    ingest_ledger.ingest.load_file()
+
+    # Configure an import data source that our MinimalImporter will identify
+    # The MinimalImporter in `import_config.py` identifies files
+    # containing its acc
+    # In `tests/data/import_config.py`, `TestImporter` identifies
+    # `import.csv`.
+    # Let's create an option that has filename "import.csv".
+    opt = ImportDataSourceOption(
+        name="Virtual CSV",
+        filename="import.csv",
+        config=(
+            "IBAN;Auszugsnummer;Buchungsdatum;Valutadatum;Umsatzzeit;"
+            "Zahlungsreferenz;Waehrung;Betrag;Buchungstext;Umsatztext;Saldo\n"
+            "ATXYZ123400000;1;2017-02-14;2017-02-14;2017-02-14-11.57.44.235044;"
+            '"";EUR;-100,00;"Bankomat";" BANKOMAT  00000483 K2 UM 11:56";'
+            "4.467,89\n"
+            "ATXYZ123400000;1;2017-02-13;2017-02-13;2017-02-13-11.12.14.754647;"
+            '"";EUR;-50,00;"SEPA-Lastschrift";"Payment to Company XYZ '
+            'REF: 31000161205-6944556-0000463";4.567,89\n'
+            ";;2017-02-12;;;;;;;Hinweis: Zinssatz auf 0,15% geändert;"
+        ),
+    )
+    opt_unmatched = ImportDataSourceOption(
+        name="Unmatched",
+        filename="unknown.csv",
+        config="some content",
+    )
+    monkeypatch.setattr(
+        ingest_ledger.fava_options,
+        "import_data_source",
+        [opt, opt_unmatched],
+    )
+
+    # Check that import_data yields the virtual data source
+    files = ingest_ledger.ingest.import_data()
+    virtual_files = [f for f in files if f.is_data_source]
+    assert len(virtual_files) == 2
+    assert virtual_files[0].name == "Virtual CSV"
+    assert len(virtual_files[0].importers) > 0
+    assert virtual_files[1].name == "Unmatched"
+    assert len(virtual_files[1].importers) == 0
+
+    # Extract
+    entries = ingest_ledger.ingest.extract(
+        "Virtual CSV", "<run_path>.TestImporter"
+    )
+    assert len(entries) == 4
+
+    # Test error during extract for virtual data source
+    with pytest.raises(ImporterExtractError):
+        ingest_ledger.ingest.extract(
+            "Virtual CSV", "<run_path>.TestImporterThatErrorsOnExtrac"
+        )
+
+    # Extract physical file to skip the loop
+    # We will use "import.csv"
+    import_csv_path = str(
+        Path(ingest_ledger.beancount_file_path).parent / "import.csv"
+    )
+    entries = ingest_ledger.ingest.extract(
+        import_csv_path, "<run_path>.TestImporter"
+    )
+    assert len(entries) == 4

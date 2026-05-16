@@ -111,3 +111,21 @@ def test_fava_options_set_import_dirs() -> None:
     options.set_import_dirs("/path/with spaces")
     options.set_import_dirs("/simple/path")
     assert list(options.import_dirs) == ["/path/with spaces", "/simple/path"]
+
+
+def test_fava_options_import_data_source(
+    load_doc_custom_entries: list[Custom],
+) -> None:
+    """
+    2016-04-14 custom "fava-option" "import-data-source"
+    2016-04-14 custom "fava-option" "import-data-source" "My API"
+    2016-04-14 custom "fava-option" "import-data-source" "My API" "api.yaml"
+    2016-04-14 custom "fava-option" "import-data-source" "A" "f" "token: 123"
+    2016-04-14 custom "fava-option" "import-data-source" 10 10 10
+    """
+    options, errors = parse_options(load_doc_custom_entries)
+    assert len(errors) == 4
+    assert len(options.import_data_source) == 1
+    assert options.import_data_source[0].name == "A"
+    assert options.import_data_source[0].filename == "f"
+    assert options.import_data_source[0].config == "token: 123"

@@ -723,6 +723,7 @@
     "default_page": "income_statement/",
     "fiscal_year_end": { "day": 31, "month": 12 },
     "import_config": null,
+    "import_data_source": [],
     "import_dirs": [],
     "import_feed_review": false,
     "indent": 2,

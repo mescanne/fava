@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import datetime
 import os
+import shutil
 import sys
+import tempfile
 import traceback
 from dataclasses import dataclass
 from functools import wraps
@@ -138,6 +140,7 @@ class FileImporters:
     name: str
     basename: str
     importers: list[FileImportInfo]
+    is_data_source: bool = False
 
 
 def _catch_any(func: Callable[P, T]) -> Callable[P, T]:
@@ -360,6 +363,24 @@ class IngestModule(FavaModule):
                     ],
                 )
 
+        for data_source in self.ledger.fava_options.import_data_source:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                path = Path(temp_dir) / data_source.filename
+                path.write_text(data_source.config, encoding="utf-8")
+
+                matched_importers = [
+                    importer.file_import_info(path)
+                    for importer in importers
+                    if importer.identify(path)
+                ]
+
+                yield FileImporters(
+                    name=data_source.name,
+                    basename=data_source.name,
+                    importers=matched_importers,
+                    is_data_source=True,
+                )
+
     def extract(self, filename: str, importer_name: str) -> list[Directive]:
         """Extract entries from filename with the specified importer.
 
@@ -376,6 +397,31 @@ class IngestModule(FavaModule):
         # reload (if changed)
         self.load_file()
 
+        for data_source in self.ledger.fava_options.import_data_source:
+            if data_source.name == filename:
+                # Do not use `with tempfile.TemporaryDirectory()` because
+                # the tempdir gets destroyed before the generator yielded
+                # by `importer.extract()` might fully complete or before
+                # subsequent hooks run.
+                temp_dir = tempfile.mkdtemp()
+                try:
+                    path = Path(temp_dir) / data_source.filename
+                    path.write_text(data_source.config, encoding="utf-8")
+                    try:
+                        importer = self.importers[importer_name]
+                        new_entries = extract_from_file(
+                            importer,
+                            path,
+                            existing_entries=self.ledger.all_entries,
+                        )
+                    except Exception as exc:
+                        raise ImporterExtractError from exc
+                    return self._process_hooks(
+                        path, filename, importer, new_entries
+                    )
+                finally:
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+
         try:
             path = Path(filename)
             importer = self.importers[importer_name]
@@ -387,6 +433,15 @@ class IngestModule(FavaModule):
         except Exception as exc:
             raise ImporterExtractError from exc
 
+        return self._process_hooks(path, filename, importer, new_entries)
+
+    def _process_hooks(
+        self,
+        path: Path,
+        filename: str,
+        importer: WrappedImporter,
+        new_entries: list[Directive],
+    ) -> list[Directive]:
         for hook_fn in self.hooks:
             annotations = get_annotations(hook_fn)
             if any("Importer" in a for a in annotations.values()):

@@ -53,6 +53,12 @@
   let importable_files = $derived(
     files.filter((file) => file.identified_by_importers),
   );
+  let data_sources = $derived(
+    importable_files.filter((file) => file.is_data_source),
+  );
+  let physical_files = $derived(
+    importable_files.filter((file) => !file.is_data_source),
+  );
   /** Files not identified by any importer. */
   let other_files = $derived(
     files.filter((file) => !file.identified_by_importers),
@@ -163,10 +169,23 @@
       {#if files.length === 0}
         <p>{_("No files were found for import.")}</p>
       {/if}
-      {#if importable_files.length > 0}
+      {#if data_sources.length > 0}
+        <h2>{_("Connected Data Sources")}</h2>
+        <FileList
+          files={data_sources}
+          {extract_cache}
+          {file_accounts}
+          {file_names}
+          bind:selected
+          {move}
+          {remove}
+          {extract}
+        />
+      {/if}
+      {#if physical_files.length > 0}
         <h2>{_("Importable Files")}</h2>
         <FileList
-          files={importable_files}
+          files={physical_files}
           {extract_cache}
           {file_accounts}
           {file_names}

@@ -38,17 +38,19 @@
     >
       {file.basename}
     </button>
-    <button
-      type="button"
-      class="round"
-      onclick={() => {
-        remove(file.name);
-      }}
-      title={_("Delete")}
-      tabindex={-1}
-    >
-      ×
-    </button>
+    {#if !file.is_data_source}
+      <button
+        type="button"
+        class="round"
+        onclick={() => {
+          remove(file.name);
+        }}
+        title={_("Delete")}
+        tabindex={-1}
+      >
+        ×
+      </button>
+    {/if}
   </div>
   <div class="flex-column">
     {#each file.importers as info (info.importer_name)}
@@ -59,40 +61,50 @@
         class="flex-row"
         onsubmit={(event) => {
           event.preventDefault();
-          move(file.name, account, new_name);
+          if (!file.is_data_source) {
+            move(file.name, account, new_name);
+          }
         }}
       >
-        <AccountInput
-          bind:value={
-            () => account,
-            (value: string) => {
-              file_accounts.set(file_importer_key, value);
+        {#if !file.is_data_source}
+          <AccountInput
+            bind:value={
+              () => account,
+              (value: string) => {
+                file_accounts.set(file_importer_key, value);
+              }
             }
-          }
-          required
-        />
-        <input
-          size={40}
-          bind:value={
-            () => new_name,
-            (value: string) => {
-              file_names.set(file_importer_key, value);
+            required
+          />
+          <input
+            size={40}
+            bind:value={
+              () => new_name,
+              (value: string) => {
+                file_names.set(file_importer_key, value);
+              }
             }
-          }
-        />
-        <button type="submit">
-          {_("Move")}
-        </button>
+          />
+          <button type="submit">
+            {_("Move")}
+          </button>
+        {/if}
         {#if info.importer_name}
           {@const is_cached = extract_cache.has(file_importer_key)}
           <button
             type="button"
-            title="{_('Extract')} with importer {info.importer_name}"
+            title="{file.is_data_source
+              ? _('Sync')
+              : _('Extract')} with importer {info.importer_name}"
             onclick={() => {
               extract(file.name, info.importer_name);
             }}
           >
-            {is_cached ? _("Continue") : _("Extract")}
+            {is_cached
+              ? _("Continue")
+              : file.is_data_source
+                ? _("Sync")
+                : _("Extract")}
           </button>
           {#if is_cached}
             <button
