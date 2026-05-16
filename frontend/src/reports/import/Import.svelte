@@ -49,6 +49,9 @@
   /** The names chosen for a file and importer. */
   let file_names = new SvelteMap<string, string>();
 
+  /** The key of the currently extracting importer. */
+  let extracting = $state.raw<string | null>(null);
+
   /** Importable files. */
   let importable_files = $derived(
     files.filter((file) => file.identified_by_importers),
@@ -101,26 +104,24 @@
    * Open the extract dialog for the given file/importer combination.
    */
   async function extract(filename: string, importer: string) {
-    console.log("extract called", { filename, importer });
     const file_importer_key = `${filename}:${importer}`;
     const cached = extract_cache.get(file_importer_key);
     if (cached) {
-      console.log("Using cached entries:", cached);
       entries = cached;
       return;
     }
+    extracting = file_importer_key;
     try {
-      console.log("Fetching extract...");
       entries = await get_extract({ filename, importer });
-      console.log("Fetched entries:", entries);
       if (entries.length) {
         extract_cache.set(file_importer_key, entries);
       } else {
         notify("No entries to import from this file.", "warning");
       }
     } catch (error) {
-      console.error("Error fetching extract:", error);
       notify_err(error);
+    } finally {
+      extracting = null;
     }
   }
 
@@ -180,6 +181,7 @@
           {move}
           {remove}
           {extract}
+          {extracting}
         />
       {/if}
       {#if physical_files.length > 0}
@@ -193,6 +195,7 @@
           {move}
           {remove}
           {extract}
+          {extracting}
         />
       {/if}
       {#if other_files.length > 0}
@@ -207,6 +210,7 @@
             {move}
             {remove}
             {extract}
+            {extracting}
           />
         </details>
       {/if}

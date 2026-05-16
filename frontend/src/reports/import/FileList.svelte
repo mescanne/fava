@@ -10,6 +10,7 @@
     file_accounts: Map<string, string>;
     file_names: Map<string, string>;
     selected: string | null;
+    extracting?: string | null;
     remove: (name: string) => void;
     move: (name: string, a: string, newName: string) => void;
     extract: (name: string, importer: string) => void;
@@ -21,6 +22,7 @@
     file_accounts = $bindable(),
     file_names = $bindable(),
     selected = $bindable(),
+    extracting = null,
     remove,
     move,
     extract,
@@ -91,8 +93,10 @@
         {/if}
         {#if info.importer_name}
           {@const is_cached = extract_cache.has(file_importer_key)}
+          {@const is_extracting = extracting === file_importer_key}
           <button
             type="button"
+            disabled={is_extracting}
             title="{file.is_data_source
               ? _('Sync')
               : _('Extract')} with importer {info.importer_name}"
@@ -100,13 +104,17 @@
               extract(file.name, info.importer_name);
             }}
           >
-            {is_cached
-              ? _("Continue")
-              : file.is_data_source
-                ? _("Sync")
-                : _("Extract")}
+            {is_extracting
+              ? file.is_data_source
+                ? _("Syncing...")
+                : _("Extracting...")
+              : is_cached
+                ? _("Continue")
+                : file.is_data_source
+                  ? _("Sync")
+                  : _("Extract")}
           </button>
-          {#if is_cached}
+          {#if is_cached && !is_extracting}
             <button
               type="button"
               onclick={() => {
