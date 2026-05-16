@@ -1,0 +1,8 @@
+{
+  "name": "pi-playwright-skill",
+  "version": "1.0.0",
+  "description": "Playwright skill for pi agent",
+  "dependencies": {
+    "playwright": "^1.44.0"
+  }
+}

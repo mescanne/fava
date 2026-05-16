@@ -51,6 +51,7 @@ const fava_options = object({
   conversion_currencies: array(string),
   collapse_pattern: array(string),
   import_config: optional(string),
+  import_feed_review: boolean,
   indent: number,
   invert_gains_losses_colors: boolean,
   invert_income_liabilities_equity: boolean,

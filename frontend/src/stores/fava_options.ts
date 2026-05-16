@@ -23,6 +23,10 @@ export const import_config = derived(
   fava_options,
   ($fava_options) => $fava_options.import_config,
 );
+export const import_feed_review = derived(
+  fava_options,
+  ($fava_options) => $fava_options.import_feed_review,
+);
 export const invert_income_liabilities_equity = derived(
   fava_options,
   ($fava_options) => $fava_options.invert_income_liabilities_equity,

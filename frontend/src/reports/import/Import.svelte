@@ -14,9 +14,13 @@
   import { is_non_empty } from "../../lib/array.ts";
   import { notify, notify_err } from "../../notifications.ts";
   import { router } from "../../router.ts";
-  import { import_config } from "../../stores/fava_options.ts";
+  import {
+    import_config,
+    import_feed_review,
+  } from "../../stores/fava_options.ts";
   import DocumentPreview from "../documents/DocumentPreview.svelte";
   import Extract from "./Extract.svelte";
+  import ExtractFeed from "./ExtractFeed.svelte";
   import FileList from "./FileList.svelte";
   import ImportFileUpload from "./ImportFileUpload.svelte";
   import type { ImportReportProps } from "./index.ts";
@@ -91,20 +95,25 @@
    * Open the extract dialog for the given file/importer combination.
    */
   async function extract(filename: string, importer: string) {
+    console.log("extract called", { filename, importer });
     const file_importer_key = `${filename}:${importer}`;
     const cached = extract_cache.get(file_importer_key);
     if (cached) {
+      console.log("Using cached entries:", cached);
       entries = cached;
       return;
     }
     try {
+      console.log("Fetching extract...");
       entries = await get_extract({ filename, importer });
+      console.log("Fetched entries:", entries);
       if (entries.length) {
         extract_cache.set(file_importer_key, entries);
       } else {
         notify("No entries to import from this file.", "warning");
       }
     } catch (error) {
+      console.error("Error fetching extract:", error);
       notify_err(error);
     }
   }
@@ -132,13 +141,23 @@
     > for more information.
   </p>
 {:else}
-  <Extract
-    bind:entries
-    close={() => {
-      entries = [];
-    }}
-    {save}
-  />
+  {#if $import_feed_review}
+    <ExtractFeed
+      bind:entries
+      close={() => {
+        entries = [];
+      }}
+      {save}
+    />
+  {:else}
+    <Extract
+      bind:entries
+      close={() => {
+        entries = [];
+      }}
+      {save}
+    />
+  {/if}
   <div class="fixed-fullsize-container">
     <div class="filelist flex-column">
       {#if files.length === 0}

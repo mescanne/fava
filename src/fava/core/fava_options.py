@@ -100,6 +100,7 @@ class FavaOptions:
     fiscal_year_end: FiscalYearEnd = END_OF_YEAR
     import_config: str | None = None
     import_dirs: Sequence[str] = field(default_factory=list)
+    import_feed_review: bool = False
     indent: int = 2
     insert_entry: Sequence[InsertEntryOption] = field(default_factory=list)
     invert_gains_losses_colors: bool = False

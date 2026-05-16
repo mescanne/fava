@@ -724,6 +724,7 @@
     "fiscal_year_end": { "day": 31, "month": 12 },
     "import_config": null,
     "import_dirs": [],
+    "import_feed_review": false,
     "indent": 2,
     "insert_entry": [],
     "invert_gains_losses_colors": false,
